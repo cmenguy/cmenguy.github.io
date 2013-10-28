@@ -1,0 +1,4 @@
+# Modify background image
+
+To modify the image itself, update in _config.yml the fields under Homepage
+To modify the section of the image visible, update sass/oscailte/homepage/_hero_unit.scss the background-position field

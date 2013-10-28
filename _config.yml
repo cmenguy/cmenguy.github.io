@@ -2,10 +2,10 @@
 #      Main Configs       #
 # ----------------------- #
 
-url: http://yoursite.com
-title: My Octopress Blog
-subtitle: A blogging framework for hackers.
-author: Your Name
+url: http://cmenguy.github.io
+title: Charles Menguy
+subtitle: Coding adventures with Charles
+author: Charles Menguy
 simple_search: http://google.com/search
 description:
 
@@ -19,7 +19,7 @@ date_format: "ordinal"
 subscribe_rss: /atom.xml
 subscribe_email:
 # RSS feeds can list your email address if you like
-email:
+email: charles.menguy@gmail.com
 
 # ----------------------- #
 #    Jekyll & Plugins     #
@@ -59,11 +59,27 @@ default_asides: [asides/recent_posts.html, asides/github.html, asides/delicious.
 # page_asides:
 
 # ----------------------- #
+#        Homepage         #
+# ----------------------- #
+background_image: laos_from_nakhon_phanom.jpg
+background_title: Laos landscape from Nakhon Phanom in Thailand, Summer 2013
+# background_author: Charles Menguy
+# background_link: 
+
+welcome_msg: Software engineer and aspiring data scientist solving Big Data problems in New York City.<br>Passionate about data from acquisition and processing to visualization.<br>Wannabe world traveller in my free time.
+grid_left_title: Data Science
+grid_left_content: Diving into structured or unstructured datasets is where the real fun is for me. I'm passionate about machine learning, and always enthusiastic to hear about more data science projects, so feel free to contact me even for volunteer opportunities. 
+grid_middle_title: Cloud Computing
+grid_middle_content: No need to have hundreds of Operation folks to manage your Big Data infrastructure, you can probably get everything you need and more with the Cloud. I'm experienced with Cloud platforms such as Amazon Web Services and always happy to share stories.
+grid_right_title: Big Data
+grid_right_content: Aside from being a frequently misused buzzword, Big Data is a real disciplin that requires real tools to do the job. I know my way around various Big Data platforms such as Hadoop, Spark, Storm etc and scaling to many Terabytes. Feel free to drop me a line for some exciting Big Data discussion.
+
+# ----------------------- #
 #   3rd Party Settings    #
 # ----------------------- #
 
 # Github repositories
-github_user:
+github_user: cmenguy
 github_repo_count: 0
 github_show_profile_link: true
 github_skip_forks: true
@@ -90,11 +106,17 @@ delicious_user:
 delicious_count: 3
 
 # Disqus Comments
-disqus_short_name:
+disqus_short_name: charlesmenguy
 disqus_show_comment_count: false
 
 # Google Analytics
-google_analytics_tracking_id:
+google_analytics_tracking_id: UA-45200068-1
 
 # Facebook Like
 facebook_like: false
+
+social:
+  github: cmenguy
+  stackoverflow: 1332690
+  linkedin: charlesmenguy
+  twitter: cmenguy
