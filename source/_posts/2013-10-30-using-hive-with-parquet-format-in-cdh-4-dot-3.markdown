@@ -107,7 +107,7 @@ An example way to transfer data is if you already have an existing Hive table wi
 
 ```
 $ cd /usr/lib/hive/lib
-$ cat parquet_load.hql 
+$ cat /tmp/parquet_load.hql 
 add jar parquet-avro-1.2.5.jar;
 add jar parquet-cascading-1.2.5.jar;
 add jar parquet-column-1.2.5.jar;
@@ -123,9 +123,36 @@ add jar parquet-thrift-1.2.5.jar;
 add jar parquet-format-1.0.0.jar;
 
 insert overwrite parquet_test select * from test_data;
-$ hive -f parquet_load.hql
+$ hive -f /tmp/parquet_load.hql
+OK
 ```
 
 This should be enough to load some sample data serialized using Parquet.
+
+And on the other side, to read data from Parquet, you need to similarly add all the jars in Hive and run your query:
+```
+$ cd /usr/lib/hive/lib
+$ cat /tmp/parquet_read.hql 
+add jar parquet-avro-1.2.5.jar;
+add jar parquet-cascading-1.2.5.jar;
+add jar parquet-column-1.2.5.jar;
+add jar parquet-common-1.2.5.jar;
+add jar parquet-encoding-1.2.5.jar;
+add jar parquet-generator-1.2.5.jar;
+add jar parquet-hadoop-1.2.5.jar;
+add jar parquet-hive-1.2.5.jar;
+add jar parquet-pig-1.2.5.jar;
+add jar parquet-scrooge-1.2.5.jar;
+add jar parquet-test-hadoop2-1.2.5.jar;
+add jar parquet-thrift-1.2.5.jar;
+add jar parquet-format-1.0.0.jar;
+
+select * from parquet_test;
+$ hive -f /tmp/parquet_read.hql
+OK
+1	foo
+2	bar
+1	baz
+```
 
 I haven't looked yet at performance, but will probably do some in an upcoming post.
