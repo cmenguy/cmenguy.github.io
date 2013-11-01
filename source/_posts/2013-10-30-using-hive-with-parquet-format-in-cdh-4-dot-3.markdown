@@ -1,24 +1,32 @@
 ---
 layout: post
-title: "Using Hive with Parquet format in CDH 4.3"
+title: "Using Hive with Parquet in CDH 4.3"
 date: 2013-10-30 21:04
 comments: true
 categories: [hive, parquet, cloudera, hadoop]
 ---
 
-I was at Strata/Hadoop World NYC this week and man was it a lot of fun. Many amazing speakers and technologies, it's amazing to see how the Big Data (and especially Hadoop) ecosystem is growing.
+I was at [Strata/Hadoop World NYC](http://strataconf.com/stratany2013/) this week and man was it a lot of fun. Many amazing speakers and technologies, it's amazing to see how the Big Data (and especially Hadoop) ecosystem is growing.
 In particular this year, I noticed a significant amount of attendees from Europe, something that was not the case in Strata 2012.
 
-Anyway, one of the technologies that I was most impressed with (and kinf of ashamed I didn't look at earlier...) is Parquet, an optimized columnar data format compatible with most of the Hadoop stack.
+Anyway, one of the technologies that I was most impressed with (and kinf of ashamed I didn't look at earlier...) is [Parquet](https://github.com/Parquet), an optimized columnar data format compatible with most of the Hadoop stack.
 It was developed jointly by Twitter and Cloudera with contributions from Criteo, and it looks awesome.
 
 Now that the 3-day conference is over, I thought I'd give Parquet a spin and see how it can be used for Hive queries and how much it improves performance on some toy problems.
-For these experiments I've been using the Cloudera quickstart VM with CDH 4.3.
+For these experiments I've been using the [Cloudera quickstart VM](http://www.cloudera.com/content/support/en/downloads.html) with CDH 4.3.
+
+<!--more-->
+There are 3 components that need to be specified when you want to create a Hive table managed by Parquet:
+
+* SerDe : you need to specify the Parquet SerDe to serialize data in the Parquet format. It can be found under `parquet.hive.serde.ParquetHiveSerDe`.
+* Input format : the Parquet input format can be found under `parquet.hive.DeprecatedParquetInputFormat`. It is named as "deprecated" because it uses the old `mapred` API in Hadoop.
+* Output format : the Parquet output format can be found under `parquet.hive.DeprecatedParquetOutputFormat`. Same reason for the naming convention.
 
 The first step is to simply create a Hive table using Parquet's input and output formats. Sounds easy enough, well it's because it isn't. Apparently it isn't packaged properly in CDH 4.3 for Hive (works fine for Impala) as indicated in [IMPALA-574](https://issues.cloudera.org/browse/IMPALA-574).
 
 ```
-hive> create table parquet_test(x int, y string)                                              
+hive> create table parquet_test(x int, y string) 
+    > row format serde 'parquet.hive.serde.ParquetHiveSerDe'
     > stored as inputformat 'parquet.hive.DeprecatedParquetInputFormat'                       
     > outputformat 'parquet.hive.DeprecatedParquetOutputFormat';
 FAILED: SemanticException [Error 10055]: Output Format must implement HiveOutputFormat, otherwise it should be either IgnoreKeyTextOutputFormat or SequenceFileOutputFormat
@@ -35,7 +43,8 @@ $ ln -s /usr/lib/impala/lib/parquet-hive-1.0.jar
 
 Retrying the same query gives a different result:
 ```
-hive> create table parquet_test(x int, y string)                                              
+hive> create table parquet_test(x int, y string)
+    > row format serde 'parquet.hive.serde.ParquetHiveSerDe'
     > stored as inputformat 'parquet.hive.DeprecatedParquetInputFormat'                       
     > outputformat 'parquet.hive.DeprecatedParquetOutputFormat';
 Exception in thread "main" java.lang.NoClassDefFoundError: parquet/hadoop/api/WriteSupport
@@ -77,12 +86,14 @@ $ for f in parquet-avro parquet-cascading parquet-column parquet-common parquet-
 > do
 > curl -O https://oss.sonatype.org/service/local/repositories/releases/content/com/twitter/${f}/1.2.5/${f}-1.2.5.jar
 > done
+> curl -O https://oss.sonatype.org/service/local/repositories/releases/content/com/twitter/parquet-format/1.0.0/parquet-format-1.0.0.jar
 ```
 
 Now if you try to rerun the table creation query it should succeed
 
 ```
-hive> create table parquet_test(x int, y string)                                              
+hive> create table parquet_test(x int, y string)
+    > row format serde 'parquet.hive.serde.ParquetHiveSerDe'
     > stored as inputformat 'parquet.hive.DeprecatedParquetInputFormat'                       
     > outputformat 'parquet.hive.DeprecatedParquetOutputFormat';
 OK
@@ -91,3 +102,30 @@ OK
 Something I was wondering is why we need to fetch these dependencies since they are not in the Impala lib directory and so not needed by Impala.
 After looking a bit around in the ticket, this is actually very stupid: remember, Impala is written in C++, so it doesn't even need these jars since it has its own implementation of Parquet written separately in C++.
 
+Now to actually load data you also need to add all these dependencies at runtime so that Hive will know how to serialize/deserialize data using Parquet.
+An example way to transfer data is if you already have an existing Hive table with some data in a different format, you can just `select` data in this table and `insert` it into your newly created Parquet table.
+
+```
+$ cd /usr/lib/hive/lib
+$ cat parquet_load.hql 
+add jar parquet-avro-1.2.5.jar;
+add jar parquet-cascading-1.2.5.jar;
+add jar parquet-column-1.2.5.jar;
+add jar parquet-common-1.2.5.jar;
+add jar parquet-encoding-1.2.5.jar;
+add jar parquet-generator-1.2.5.jar;
+add jar parquet-hadoop-1.2.5.jar;
+add jar parquet-hive-1.2.5.jar;
+add jar parquet-pig-1.2.5.jar;
+add jar parquet-scrooge-1.2.5.jar;
+add jar parquet-test-hadoop2-1.2.5.jar;
+add jar parquet-thrift-1.2.5.jar;
+add jar parquet-format-1.0.0.jar;
+
+insert overwrite parquet_test select * from test_data;
+$ hive -f parquet_load.hql
+```
+
+This should be enough to load some sample data serialized using Parquet.
+
+I haven't looked yet at performance, but will probably do some in an upcoming post.
