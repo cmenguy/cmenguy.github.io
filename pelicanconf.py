@@ -11,7 +11,7 @@ HIDE_SITENAME = False
 HIDE_SITELOGO = True
 
 ABOUT_ME = "big data | data science | cloud computing<br/>" \
-           "<font style=\"opacity:.6\"><i>last.first</i>@gmail.com</font><br/>" \
+           "<font style=\"opacity:.6\"><i>lastname.firstname</i>@gmail.com</font><br/>" \
            "<font style=\"opacity:.6\">New York City, United States</font>"
 # AVATAR = "images/avatar.jpg" # a bit distracting, also doesn't resolve well with relative paths
 
