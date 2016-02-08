@@ -70,13 +70,15 @@ STATIC_PATHS = [
     'files',
     'extra/robots.txt',
     'extra/favicon.ico',
-    'extra/custom.css'
+    'extra/custom.css',
+    'extra/CNAME'
 ]
 
 EXTRA_PATH_METADATA = {
     'extra/robots.txt': {'path': 'robots.txt'},
     'extra/favicon.ico': {'path': 'favicon.ico'},
-    'extra/custom.css': {'path': 'static/custom.css'}
+    'extra/custom.css': {'path': 'static/custom.css'},
+    'extra/CNAME': {'path': 'CNAME'}
 }
 
 BANNER = 'images/banner.jpg'
