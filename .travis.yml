@@ -1,9 +1,9 @@
 language: python
 python:
 - 3.5
-addons:
-  apt_packages:
-    - pandoc-1.13.2
+#addons:
+#  apt_packages:
+#    - pandoc
 sudo: false
 branches:
   only:
@@ -13,7 +13,19 @@ notifications:
     on_success: always
     on_failure: always
 install:
+    # Install required Python modules
     - pip install -r requirements.txt
+
+    # Install pandoc manually since it's disallowed with apt-get in Travis
+    - mkdir $HOME/pandoc
+    - curl -O https://s3.amazonaws.com/rstudio-buildtools/pandoc-1.12.3.zip
+    - unzip -j pandoc-1.12.3.zip pandoc-1.12.3/linux/debian/x86_64/pandoc -d $HOME/pandoc
+    - chmod +x $HOME/pandoc/pandoc
+    - rm pandoc-1.12.3.zip
+    - export PATH="$HOME/pandoc:$PATH"
+    - pandoc --version
+
+    # Install wkhtmltopdf manually since not available in apt-get
     - mkdir wkhtmltopdf
     - wget http://download.gna.org/wkhtmltopdf/0.12/0.12.3/wkhtmltox-0.12.3_linux-generic-amd64.tar.xz
     - tar --xz -xvf wkhtmltox-0.12.3_linux-generic-amd64.tar.xz -C wkhtmltopdf
