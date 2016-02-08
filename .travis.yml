@@ -13,11 +13,7 @@ notifications:
     on_success: always
     on_failure: always
 install:
-    - pip install pelican
-    - pip install markdown
-    - pip install IPython
-    - pip install ghp-import
-    - pip install pelican-resume
+    - pip install -r requirements.txt
     - mkdir wkhtmltopdf
     - wget http://wkhtmltopdf.googlecode.com/files/wkhtmltopdf-0.9.9-static-amd64.tar.bz2
     - tar xvjf wkhtmltopdf-0.9.9-static-amd64.tar.bz2 -C wkhtmltopdf

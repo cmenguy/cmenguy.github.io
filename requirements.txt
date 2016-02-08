@@ -1,0 +1,6 @@
+pelican
+markdown
+beautifulsoup4
+IPython
+ghp-import
+pelican-resume
