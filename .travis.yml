@@ -1,0 +1,20 @@
+language: python
+python:
+- 3.5
+sudo: false
+branches:
+  only:
+  - sources
+notifications:
+  email:
+    on_success: always
+    on_failure: always
+install:
+- pip install ghp-import
+- pip install pelican-resume
+script:
+- pip freeze; make DEBUG=1 publish 2>&1 | tee -a build.log; cp build.log output/build.log
+after_success: make github
+env:
+  global:
+    secure: 1FydKjUCkclm2I8hPYBVp4rUErdgGE8R2G1L33w6xxdQxVtcBDeqfen2tRh9qV2p6mAZ3kF3TLf/ls+bsBHRuPbcyraPhIuwxGcPI/uqaX64mo+eorxdjAfJHjZjOxz4h2HWCQhqLfAvgemKKtOho0xJO6gHG8QeAt6mNiJY7bVWpjlhwYP1dKItCeM4s3YxQVHqQtlRrMzWCZztuy4l2fYhK8iR0gmFZnuDVh1EbWHnhqF1jGb3LSr3oqzqkJGPHuQjPAzK0fMLrsqARVOUr+65BtdYYuu9UcdyMlMhy/9tqd2X/6OzkD57MoTCFLzkvGKAOyTJHwrt5EzqG0svLCj57nv+H4iiOyV0UnrHa0Zb5gaH5isY9kBuuXO6gZfzVqJ9FwZJxwhov43M02VuCpCuzr/gyts04npwfaPjmJTI1QCbrOUEEI+ylPpUnk2QnGrYcsev/JIRu6mJzmJM38e7BoN1inSDemIJiVKYKc0Nm6B5TbQvDfPCiiO3k60WMpToY33Cqc7nTyhScSH5Z3OGPDkMYdVO5BjESnvRQJR7haD4ZQ2MRFRr4O4tSlHyqr3GU4CPDrarol+IBE5j/2s1+RPSRF7hOWp9EZ6hf5ZarDUZ3lB5jXY7Zy8Qe6+fWSzChXILQI/q7z/+xzKapM990LBa43oSPYi3hyXkpa4=
