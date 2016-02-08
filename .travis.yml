@@ -1,6 +1,9 @@
 language: python
 python:
 - 3.5
+addons:
+  apt_packages:
+    - pandoc
 sudo: false
 branches:
   only:
@@ -10,10 +13,15 @@ notifications:
     on_success: always
     on_failure: always
 install:
-- pip install pelican
-- pip install markdown
-- pip install ghp-import
-- pip install pelican-resume
+    - pip install pelican
+    - pip install markdown
+    - pip install ghp-import
+    - pip install pelican-resume
+    - mkdir wkhtmltopdf
+    - wget http://wkhtmltopdf.googlecode.com/files/wkhtmltopdf-0.9.9-static-amd64.tar.bz2
+    - tar xvjf wkhtmltopdf-0.9.9-static-amd64.tar.bz2 -C wkhtmltopdf
+    - mv wkhtmltopdf/wkhtmltopdf-amd64 wkhtmltopdf/wkhtmltopdf
+    - export PATH=$PATH:$PWD/wkhtmltopdf/
 script:
 - pip freeze; make DEBUG=1 publish 2>&1 | tee -a build.log; cp build.log output/build.log
 after_success: make github
