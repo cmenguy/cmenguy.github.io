@@ -11,6 +11,7 @@ notifications:
     on_failure: always
 install:
 - pip install pelican
+- pip install markdown
 - pip install ghp-import
 - pip install pelican-resume
 script:
