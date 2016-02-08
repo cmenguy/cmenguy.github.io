@@ -118,8 +118,8 @@ cf_upload: publish
 	cd $(OUTPUTDIR) && swift -v -A https://auth.api.rackspacecloud.com/v1.0 -U $(CLOUDFILES_USERNAME) -K $(CLOUDFILES_API_KEY) upload -c $(CLOUDFILES_CONTAINER) .
 
 github:
-	git config user.email menguy.charles@gmail.com
-	git config user.name "Travis CI"
+	git config --global user.email menguy.charles@gmail.com
+	git config --global user.name "Travis CI"
 	ghp-import -m "Generate Pelican site" -b $(GITHUB_PAGES_BRANCH) -n $(OUTPUTDIR)
 	git push -fq https://${GH_TOKEN}@github.com/$(TRAVIS_REPO_SLUG).git $(GITHUB_PAGES_BRANCH)
 
