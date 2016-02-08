@@ -26,7 +26,7 @@ PLUGIN_PATHS = ["plugins"]
 PLUGINS = ['liquid_tags.img', 'liquid_tags.video',
            'liquid_tags.youtube', 'liquid_tags.vimeo',
            'liquid_tags.include_code', 'liquid_tags.notebook',
-           'tipue_search', 'tag_cloud', 'pelican_resume']
+           'tipue_search', 'tag_cloud', 'pelican_resume', 'pelican-bootstrapify']
 
 RESUME_TYPE = "moderncv"
 
