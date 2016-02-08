@@ -15,10 +15,9 @@ notifications:
 install:
     - pip install -r requirements.txt
     - mkdir wkhtmltopdf
-    - wget http://wkhtmltopdf.googlecode.com/files/wkhtmltopdf-0.9.9-static-amd64.tar.bz2
-    - tar xvjf wkhtmltopdf-0.9.9-static-amd64.tar.bz2 -C wkhtmltopdf
-    - mv wkhtmltopdf/wkhtmltopdf-amd64 wkhtmltopdf/wkhtmltopdf
-    - export PATH=$PATH:$PWD/wkhtmltopdf/
+    - wget http://download.gna.org/wkhtmltopdf/0.12/0.12.3/wkhtmltox-0.12.3_linux-generic-amd64.tar.xz
+    - tar --xz -xvf wkhtmltox-0.12.3_linux-generic-amd64.tar.xz -C wkhtmltopdf
+    - export PATH=$PATH:$PWD/wkhtmltopdf/wkhtmltox/bin/
 script:
 - pip freeze; make DEBUG=1 publish 2>&1 | tee -a build.log; cp build.log output/build.log
 after_success: make github
