@@ -1,11 +1,38 @@
-<div id="aboutme">
+<div id="aboutme" class="well well-sm">
     {% if AVATAR %}
         <p>
             <img width="100%" class="img-thumbnail" src="{{ AVATAR }}"/>
         </p>
     {% endif %}
-    <p>
-        <strong>About {{ AUTHOR }}</strong><br/>
-        {{ ABOUT_ME }}
-    </p>
+    <div class="name-cv">
+        <div class="name">{{ AUTHOR }}</div>
+        <div class="cv"><a href="/{{ RESUME_PDF }}"><i class="fa fa-file-pdf-o"></i> CV</a></div>
+    </div>
+    <div class="clear"></div>
+    {% if ABOUT_ME_TOPICS %}
+        <div class="sub-name">{{ ABOUT_ME_TOPICS }}</div>
+    {% endif %}
+    {% if ABOUT_ME_EMAIL %}
+        <div class="contact">{{ ABOUT_ME_EMAIL }}</div>
+    {% endif %}
+    {% if ABOUT_ME_LOCATION %}
+        <div class="location">{{ ABOUT_ME_LOCATION }}</div>
+    {% endif %}
+    {% if 'tag_cloud' in PLUGINS and DISPLAY_TAGS_ON_ABOUTME %}
+        {% if DISPLAY_TAGS_INLINE %}
+            {% set tags = tag_cloud | sort(attribute='0') %}
+        {% else %}
+            {% set tags = tag_cloud | sort(attribute='1') %}
+        {% endif %}
+        <br/>
+        <ul class="list-group {% if DISPLAY_TAGS_INLINE %}list-inline tagcloud{% endif %}" id="tags">
+            {% for tag in tag_cloud %}
+                <li class="list-group-item tag-{{ tag.1 }}">
+                    <a class="tag" href="{{ SITEURL }}/{{ tag.0.url }}">
+                        #{{ tag.0 }}
+                    </a>
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
 </div>

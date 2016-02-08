@@ -10,9 +10,11 @@ SITELOGO_SIZE = 40
 HIDE_SITENAME = False
 HIDE_SITELOGO = True
 
-ABOUT_ME = "big data | data science | cloud computing<br/>" \
-           "<font style=\"opacity:.6\"><i>lastname.firstname</i>@gmail.com</font><br/>" \
-           "<font style=\"opacity:.6\">New York City, United States</font>"
+ABOUT_ME = True
+ABOUT_ME_TOPICS = "big data | data science | cloud computing"
+ABOUT_ME_EMAIL = "menguy.charles@gmail.com"
+ABOUT_ME_LOCATION = "New York City, United States"
+
 # AVATAR = "images/avatar.jpg" # a bit distracting, also doesn't resolve well with relative paths
 
 PATH = 'content'
@@ -24,7 +26,13 @@ PLUGIN_PATHS = ["plugins"]
 PLUGINS = ['liquid_tags.img', 'liquid_tags.video',
            'liquid_tags.youtube', 'liquid_tags.vimeo',
            'liquid_tags.include_code', 'liquid_tags.notebook',
-           'tipue_search', 'tag_cloud']
+           'tipue_search', 'tag_cloud', 'pelican_resume']
+
+RESUME_TYPE = "moderncv"
+
+DISPLAY_TAGS_ON_SIDEBAR = False
+DISPLAY_TAGS_ON_ABOUTME = True
+DISPLAY_TAGS_INLINE = True
 
 # theme choice
 THEME = "themes/pelican-bootstrap3"
@@ -42,14 +50,12 @@ SHOW_ARTICLE_AUTHOR = False
 SHOW_ARTICLE_CATEGORY = False
 SHOW_DATE_MODIFIED = False
 
-DISPLAY_PAGES_ON_MENU =False
+DISPLAY_PAGES_ON_MENU = False
 DISPLAY_CATEGORIES_ON_MENU = False
-DISPLAY_TAGS_ON_SIDEBAR = True
 DISPLAY_RECENT_POSTS_ON_SIDEBAR = True
 
 MENUITEMS = (
     ('About','/pages/about.html'),
-    ('Projects','/pages/projects.html'),
     ("Resume", "/pages/resume.html"),
     ("Blog", "/index.html"),
     ("Feed", "rss.xml")

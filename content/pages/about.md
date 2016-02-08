@@ -20,7 +20,7 @@ I also have DevOps chops to help when needed configuring/deploying/maintaining H
     <div class="col-md-8">
 <br/>
 I currently work and live in the United States, in New York City, where I have spent most of my professional life.
-Initially graduated from EPITA in Paris, France, where I obtained a Master's degree in Computer Science, with a major in cognitive science.
+Initially graduated from <a href="http://www.epita.fr/">EPITA</a> in Paris, France, where I obtained a Master's degree in Computer Science, with a major in Cognitive Science.
 I enjoy more than anything traveling abroad and discovering new cultures.
     </div>
     <div class="col-md-3">
@@ -35,7 +35,7 @@ I enjoy more than anything traveling abroad and discovering new cultures.
     </div>
     <div class="col-md-8">
 <br/>
-Not a huge social media freak so the best way to reach me is to contact me at my personal email address (see on the side).
+Not a huge social media freak so the best way to reach me is to contact me at my personal email address (hint: see on the side).
 I try to contribute to the open-source and data communities via the following channels:
 <ul>
     <li><b>StackOverflow</b>: I have been very active on the <i>hadoop</i> and related tags, have had less time to participate recently but still look at it at least once a day.</li>
