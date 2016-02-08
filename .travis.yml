@@ -10,6 +10,7 @@ notifications:
     on_success: always
     on_failure: always
 install:
+- pip install pelican
 - pip install ghp-import
 - pip install pelican-resume
 script:
