@@ -58,7 +58,7 @@ MENUITEMS = (
     ('About','/pages/about.html'),
     ("Resume", "/pages/resume.html"),
     ("Blog", "/index.html"),
-    ("Feed", "rss.xml")
+    ("Feed", "feeds/all.atom.xml")
 )
 
 DIRECT_TEMPLATES = ('index', 'categories', 'authors', 'archives', 'search')

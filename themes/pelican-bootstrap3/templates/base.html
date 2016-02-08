@@ -122,7 +122,11 @@
 
             <ul class="nav navbar-nav">
                 {% for title, link in MENUITEMS %}
-                    <li><a href="{{ link }}">{{ title }}</a></li>
+                    {% if title == 'Feed' %}
+                        <li><a href="{{ link }}"><i class="fa fa-lg fa-rss"></i></a></li>
+                    {% else %}
+                        <li><a href="{{ link }}">{{ title }}</a></li>
+                    {% endif %}
                 {% endfor %}
                 {% if DISPLAY_PAGES_ON_MENU %}
                     {% for p in PAGES %}
