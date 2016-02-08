@@ -159,6 +159,80 @@ and it made me want to cry.
 Here, I'm actually using [Travis](https://travis-ci.org/) to automatically and continuously deploy on every push without
 having to deal with any of the manual work myself, which is a more than welcome change.
 
+All of the code samples shown below are contained in the `.travis.yml` file which is placed at the root of the repository
+in the branch containing your Pelican sources (I called mine **sources**).
+
+The first thing we need to tell Travis is that it should only build in the **sources** branch, and not in master:
+
+    :::yaml
+    branches:
+      only:
+      - sources
+
+Another thing I want is to be notified on every failure or success - I usually don't, but for a blog I like to be extra
+sure that things are working ok when I push a new article.
+
+    :::yaml
+    notifications:
+      email:
+        on_success: always
+        on_failure: always
+
+Next the main issue I had with Travis was about installing everything required to build the Pelican blog. There's actually
+a bunch of packages needed here:
+
+* Python modules: pelican, markdown, beautifulsoup4, IPython, ghp-import and pelican-resume (see [requirements.txt](https://github.com/cmenguy/cmenguy.github.io/blob/sources/requirements.txt))
+* Pandoc - somehow if we install it via Travis' `apt_packages` it uses an old version which produces poor formatting, so
+we need to install it manually
+* Wkhtmltopdf - this is not even available via `apt-get` for Travis, so it needs to be installed manually
+
+The code snippet below contains the necessary commands to install all these dependencies on Travis:
+
+    :::yaml
+    install:
+        # Install required Python modules
+        - pip install -r requirements.txt
+    
+        # Install pandoc manually since it's disallowed with apt-get in Travis
+        - mkdir $HOME/pandoc
+        - curl -O https://s3.amazonaws.com/rstudio-buildtools/pandoc-1.12.3.zip
+        - unzip -j pandoc-1.12.3.zip pandoc-1.12.3/linux/debian/x86_64/pandoc -d $HOME/pandoc
+        - chmod +x $HOME/pandoc/pandoc
+        - rm pandoc-1.12.3.zip
+        - export PATH="$HOME/pandoc:$PATH"
+        - pandoc --version
+    
+        # Install wkhtmltopdf manually since not available in apt-get
+        - mkdir wkhtmltopdf
+        - wget http://download.gna.org/wkhtmltopdf/0.12/0.12.3/wkhtmltox-0.12.3_linux-generic-amd64.tar.xz
+        - tar --xz -xvf wkhtmltox-0.12.3_linux-generic-amd64.tar.xz -C wkhtmltopdf
+        - export PATH=$PATH:$PWD/wkhtmltopdf/wkhtmltox/bin/
+
+At that point Travis has everything it needs to build the blog and it just needs to run a `make publish`. I also save
+the log and place it in the output so I can easily see what happened in case something goes wrong:
+
+    :::yaml
+    script:
+    - pip freeze; make DEBUG=1 publish 2>&1 | tee -a build.log; cp build.log output/build.log
+
+And finally it needs to publish to Github in case of success. This part is a little bit tricky, because we need to pass
+an authentication token to Travis so it can push directly to the master branch. To do that I've modified the **Makefile**
+to use the `GH_TOKEN` whose encrypted value is passed in **.travis.yml** via the `env.global.secure` field:
+
+    :::yaml
+    after_success: make github
+    env:
+      global:
+        secure: <encrypted-gh-token>
+
+To encrypt the token, you need to create one in the Github UI, and then encrypt it via the `travis` gem:
+
+    gem install travis
+    travis encrypt GH_TOKEN=<gh-token>
+
+And voila ! With this simple configuration, you get a fully automated blog where you only need to fill your Markdown
+pages, and Travis will take care of generating the relevant HTML and producing your PDF resume out of it.
+
 ----------------
 
 With that system in place it should be extremely easy for me to keep updating my blog without wanting to kill myself
