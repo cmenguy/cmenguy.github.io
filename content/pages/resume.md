@@ -9,7 +9,7 @@ Charles Menguy
 
 >  Data science engineer with 6+ years of professional experience in the online advertising industry.  
 >  Fluent in Java and Python, intermediate in C++ and Scala. Comfortable with Unix/shell scripting.  
->  Well-versed in big data technologies and applying data science techniques at large scale.
+>  Well-versed in big data technologies and applying data science techniques at scale in the cloud.
 
 ----
 
@@ -36,7 +36,7 @@ Since 2012
 :   **Senior Software Engineer** for [Proclivity Media](https://www.proclivitymedia.com/)
     (New York City, United States).
 
-    • Development of a scoring engine using *Bayesian inference* to compute
+    • Participation in the development of a scoring engine using *Bayesian inference* to compute
     business value of website visitors.  
     • Using *Hadoop* and *Pig* to develop reporting infrastructure, and operational improvements.  
     • Implementation of a job controller to standardize the company's *Hadoop* pipeline and scheduling.  
@@ -121,10 +121,10 @@ Recommendations
 
 Available upon request.  
 
-
 ----
 
-> <menguy.charles@gmail.com> • +1 (917) 294-3487 • 28 years old • permanent resident  
->  350 E 62nd Street, New York - NY 10065, United States
+> <charles@gradientdissent.com> • +1 (917) 294-3487 • 28 years old • permanent resident  
+>  350 E 62nd Street, New York - NY 10065, United States  
+> [www.gradientdissent.com](http://gradientdissent.com)
 
 ----

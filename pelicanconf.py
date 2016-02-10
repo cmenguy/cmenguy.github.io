@@ -12,7 +12,7 @@ HIDE_SITELOGO = True
 
 ABOUT_ME = True
 ABOUT_ME_TOPICS = "big data | data science | cloud computing"
-ABOUT_ME_EMAIL = "menguy.charles@gmail.com"
+ABOUT_ME_EMAIL = "charles@gradientdissent.com"
 ABOUT_ME_LOCATION = "New York City, United States"
 
 # AVATAR = "images/avatar.jpg" # a bit distracting, also doesn't resolve well with relative paths
