@@ -20,6 +20,9 @@ Since 2012
 :   **Senior Data Engineer** for [Adobe](http://www.adobe.com/)
     (New York City, United States).
 
+    • Research and development of a cross-device stitching engine processing hundreds of Terabytes
+    weekly via  *EMR* and  *Spark* using graph-based cluster algorithms, coordination via  *AWS Data Pipeline*.
+    Main development in  *Scala*, analysis and evaluation via *IPython notebooks*.  
     • Complete backend development of a customer segmentation platform from scratch in  *Java*
     using  *Hadoop*,  *HBase* and  *Cassandra*, managing more than 10 Billion profiles.
     This was done by leveraging  *Amazon Web Services* in multiple regions, in particular  *EC2*,  *EMR* and  *SQS*.  
@@ -28,9 +31,6 @@ Since 2012
     • Participation in the development of an algorithmic segmentation framework based on *Hive* using  *TF-IDF*.  
     • High-frequency distributed multi-threaded cookie exchange service built in  *Java* with a custom streaming protocol
     based on  *SQS*, making tens of thousands HTTP requests per second to dozens of ad networks/DSPs/DMPs.  
-    • Research and development of a cross-device stitching engine processing hundreds of Terabytes
-    weekly via  *EMR* and  *Spark* using graph-based cluster algorithms, coordination via  *AWS Data Pipeline*.
-    Main development in  *Scala*, analysis and evaluation via *IPython notebooks*.
 
 2011-2012
 :   **Senior Software Engineer** for [Proclivity Media](https://www.proclivitymedia.com/)
