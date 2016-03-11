@@ -7,7 +7,7 @@ Charles Menguy
 
 ----
 
->  Data science engineer with 6+ years of professional experience in the online advertising industry.  
+>  Data engineer with 6+ years of professional experience in the online advertising industry.  
 >  Fluent in Java and Python, intermediate in Scala and C++. Comfortable with Unix/shell scripting.  
 >  Well-versed in big data technologies and applying data science techniques at scale in the cloud.
 
