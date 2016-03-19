@@ -1,0 +1,64 @@
+#banner {
+    padding: 85px 0;
+}
+
+#tipue_search_input {
+    height: 50px;
+}
+
+div.cv :hover {
+    color: blue;
+    text-decoration: none;
+}
+
+a.tag:hover {
+    color: #ff0;
+    background-color: #ff0;
+    text-decoration: none;
+}
+
+#aboutme {
+    padding-top: 15px;
+    padding-left: 30px;
+    padding-bottom: 0px;
+    margin-top: 20px;
+}
+
+#aboutme .name-cv {
+    width: 100%;
+    max-width: 250px;
+    max-height: 200px;
+    margin: 0 0 .5em 0;
+}
+
+#aboutme .name {
+    float: left;
+    font-weight: bold;
+}
+
+#aboutme .cv {
+    float: right;
+}
+
+#aboutme .clear {
+    clear: both;
+}
+
+#aboutme .sub-name {
+    font-size: .9em;
+}
+
+#aboutme .contact, #aboutme .location {
+    font-size: .9em;
+    color: #777
+}
+
+div#aboutme.well {
+    background: rgba(0, 0, 0, 0);
+}
+
+body {
+    font-family: "Helvetica Neue","Open Sans",Helvetica,Arial,sans-serif;
+    font-size: 17px;
+    line-height: 1.628571;
+}

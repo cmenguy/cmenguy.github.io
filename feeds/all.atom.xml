@@ -1,0 +1,404 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"><title>Gradient Dissent</title><link href="http://gradientdissent.com/" rel="alternate"></link><link href="http://gradientdissent.com/feeds/all.atom.xml" rel="self"></link><id>http://gradientdissent.com/</id><updated>2016-02-05T12:35:00-05:00</updated><entry><title>Analyzing 2 months of real crime data from San Francisco and Seattle</title><link href="http://gradientdissent.com/blog/analyzing-2-months-of-real-crime-data-from-san-francisco-and-seattle.html" rel="alternate"></link><updated>2016-02-05T12:35:00-05:00</updated><author><name>Charles Menguy</name></author><id>tag:gradientdissent.com,2016-02-05:blog/analyzing-2-months-of-real-crime-data-from-san-francisco-and-seattle.html</id><summary type="html">&lt;blockquote&gt;
+&lt;p&gt;The full data analysis described in this blog post can be found in the IPython notebook in the 
+&lt;a href="https://github.com/cmenguy/crime-analytics"&gt;crime-analytics&lt;/a&gt; repository.&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;I took part a couple weeks ago in the Coursera course &lt;a href="https://www.coursera.org/learn/data-results"&gt;Communicating Data Science Results&lt;/a&gt;
+as part of the &lt;a href="https://www.coursera.org/specializations/data-science"&gt;Data Science at Scale&lt;/a&gt; specialization.&lt;/p&gt;
+&lt;p&gt;It has been a great course - one of the assignments in particular was great because it was essentially just about taking
+a couple datasets, and coming up with our own problem and solution based on the data.&lt;/p&gt;
+&lt;p&gt;The datasets in questions proposed were real crime data from &lt;a href="https://data.sfgov.org/Public-Safety/SFPD-Incidents-from-1-January-2003/tmnf-yvry"&gt;San Francisco&lt;/a&gt; 
+and &lt;a href="https://data.seattle.gov/Public-Safety/Seattle-Police-Department-Police-Report-Incident/7ais-f98f"&gt;Seattle&lt;/a&gt;.
+These being location-based datasets, I decided to take this opportunity to also get more familiar with the Python
+geospatial libraries such as &lt;a href="http://www.gdal.org/"&gt;GDAL&lt;/a&gt; and how it can be used in tandem with &lt;a href="http://pandas.pydata.org/"&gt;pandas&lt;/a&gt; &lt;code&gt;DataFrames&lt;/code&gt;.&lt;/p&gt;
+&lt;h1&gt;Temporal Analysis&lt;/h1&gt;
+&lt;p&gt;Before looking at the geospatial distribution, I wanted to narrow it down to the crimes happening during the night since
+cursory analysis revealed that the type of crime has a high correlation with time of day (intuitively too).&lt;/p&gt;
+&lt;p&gt;Initially I wanted to use &lt;a href="https://github.com/mwaskom/seaborn"&gt;seaborn&lt;/a&gt;'s heatmap for that, but the results were not 
+aesthetically pleasing, so I decided to write my own heatmap system with &lt;code&gt;matplotlib&lt;/code&gt;.
+For that purpose, here is a function below which creates a grid using simple &lt;code&gt;matplotlib&lt;/code&gt; primitives:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;preparePlot&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;xticks&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;yticks&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;figsize&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mf"&gt;10.5&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="mi"&gt;6&lt;/span&gt;&lt;span class="p"&gt;),&lt;/span&gt; &lt;span class="n"&gt;hideLabels&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="bp"&gt;False&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;gridColor&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;'#999999'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+                &lt;span class="n"&gt;gridWidth&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="mf"&gt;1.0&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="n"&gt;plt&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;close&lt;/span&gt;&lt;span class="p"&gt;()&lt;/span&gt;
+    &lt;span class="n"&gt;fig&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;ax&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;plt&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;subplots&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;figsize&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;figsize&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;facecolor&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;'white'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;edgecolor&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;'white'&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;ax&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;axes&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;tick_params&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;labelcolor&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;'#999999'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;labelsize&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;'10'&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;axis&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;ticks&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="p"&gt;[(&lt;/span&gt;&lt;span class="n"&gt;ax&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;get_xaxis&lt;/span&gt;&lt;span class="p"&gt;(),&lt;/span&gt; &lt;span class="n"&gt;xticks&lt;/span&gt;&lt;span class="p"&gt;),&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;ax&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;get_yaxis&lt;/span&gt;&lt;span class="p"&gt;(),&lt;/span&gt; &lt;span class="n"&gt;yticks&lt;/span&gt;&lt;span class="p"&gt;)]:&lt;/span&gt;
+        &lt;span class="n"&gt;axis&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;set_ticks_position&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;'none'&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+        &lt;span class="n"&gt;axis&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;set_ticks&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;ticks&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+        &lt;span class="n"&gt;axis&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;label&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;set_color&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;'#999999'&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+        &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;hideLabels&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="n"&gt;axis&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;set_ticklabels&lt;/span&gt;&lt;span class="p"&gt;([])&lt;/span&gt;
+    &lt;span class="n"&gt;plt&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;grid&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;color&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;gridColor&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;linewidth&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;gridWidth&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;linestyle&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;'-'&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="nb"&gt;map&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="k"&gt;lambda&lt;/span&gt; &lt;span class="n"&gt;position&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="n"&gt;ax&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;spines&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;position&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;set_visible&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="bp"&gt;False&lt;/span&gt;&lt;span class="p"&gt;),&lt;/span&gt; &lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'bottom'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;'top'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;'left'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;'right'&lt;/span&gt;&lt;span class="p"&gt;])&lt;/span&gt;
+    &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="n"&gt;fig&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;ax&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;Then to create the heatmap, we simply need to use &lt;code&gt;matplotlib.pyplot.imshow&lt;/code&gt; with &lt;code&gt;nearest&lt;/code&gt; interpolation. I also chose
+a grey-scale colormap to better represent the intensity of crimes at any given hour:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="n"&gt;plt&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;imshow&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;img_src&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;interpolation&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;'nearest'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;aspect&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;'auto'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;cmap&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;cm&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;Greys&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;The result shows a heatmap where the intensity is normalized across all hours, where a darker color represents a higher
+number of crimes at that hour, and lighter color represents a smaller number of crimes.&lt;/p&gt;
+&lt;p&gt;&lt;img alt="Temporal Distribution of Crimes in SF" class="img-responsive" src="/images/crime-temporal-distribution.png"/&gt;&lt;/p&gt;
+&lt;p&gt;There are some interesting patterns here, and we can see a few crime categories which seem to be particularly frequent
+at night. The main offenders seem to be &lt;strong&gt;assault&lt;/strong&gt;, &lt;strong&gt;drunkenness&lt;/strong&gt;, &lt;strong&gt;larceny/theft&lt;/strong&gt;, &lt;strong&gt;prostitution&lt;/strong&gt;, &lt;strong&gt;robbery&lt;/strong&gt; 
+and &lt;strong&gt;vehicle theft&lt;/strong&gt;. These are the categories we'll focus on in order to have a meaningful geospatial visualization
+to see what San Francisco's crime scene looks like at night.&lt;/p&gt;
+&lt;h1&gt;Geospatial Analysis&lt;/h1&gt;
+&lt;p&gt;I had to research a few libraries to use in Python in order to visualize on a map the distribution of crimes.
+The complicated part is that I wanted to have access to the neighborhoods information, so I could break crimes down
+by neighborhood. Unfortunately, &lt;code&gt;matplotlib&lt;/code&gt;'s &lt;a href="http://matplotlib.org/basemap/"&gt;Basemap&lt;/a&gt; toolkit doesn't provide much
+aside from 2D maps. A lot of inspiration for this analysis was drawn from this blog post about &lt;a href="http://sensitivecities.com/so-youd-like-to-make-a-map-using-python-EN.html"&gt;blue plaque in London&lt;/a&gt;.&lt;/p&gt;
+&lt;p&gt;To solve it we need a &lt;a href="https://en.wikipedia.org/wiki/Shapefile"&gt;Shapefile&lt;/a&gt; containing San Francisco's neighborhoods.
+Fortunately, there is one available on the &lt;a href="https://data.sfgov.org/Geographic-Locations-and-Boundaries/SFFind-Neighborhoods/ejmn-jyk6"&gt;SF open data portal&lt;/a&gt;
+and it can easily be used via the &lt;code&gt;fiona&lt;/code&gt; module.&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="n"&gt;shp&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;fiona&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;open&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;"/path/to/shapefile.shp"&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;From that we can easily compute the map boundaries &lt;code&gt;w&lt;/code&gt; and &lt;code&gt;h&lt;/code&gt;, and feed those to create a &lt;code&gt;Basemap&lt;/code&gt; instance.
+We need a couple parameters to create our &lt;code&gt;Basemap&lt;/code&gt;:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;The coordinates where our map should be centered. For San Francisco we use &lt;code&gt;-122&lt;/code&gt;, &lt;code&gt;37.7&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;The projection to use - in our case we use the &lt;a href="http://matplotlib.org/basemap/users/tmerc.html"&gt;transverse Mercator projection&lt;/a&gt;
+which should produce a map with less distortion since we are showing a relatively narrow geographic area. For more choice
+in projections, see &lt;a href="http://matplotlib.org/basemap/users/mapsetup.html"&gt;the complete list&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;The type of ellipsoid - now this one was a bit obscure to me, not being familiar with GIS, but this is actually nothing
+more than a coordinate system. It turns out &lt;a href="http://wiki.gis.com/wiki/index.php/WGS84"&gt;WGS84&lt;/a&gt; is the standard for GPS
+so it makes sense to use that in our case.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;We can put all that together to create a &lt;code&gt;Basemap&lt;/code&gt; instance below:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="n"&gt;m&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;Basemap&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;
+    &lt;span class="n"&gt;projection&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;'tmerc'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;lon_0&lt;/span&gt;&lt;span class="o"&gt;=-&lt;/span&gt;&lt;span class="mf"&gt;122.&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;lat_0&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="mf"&gt;37.7&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;ellps&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s1"&gt;'WGS84'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;llcrnrlon&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;coords&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;-&lt;/span&gt; &lt;span class="n"&gt;extra&lt;/span&gt; &lt;span class="o"&gt;*&lt;/span&gt; &lt;span class="n"&gt;w&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;llcrnrlat&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;coords&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;-&lt;/span&gt; &lt;span class="n"&gt;extra&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="mf"&gt;0.01&lt;/span&gt; &lt;span class="o"&gt;*&lt;/span&gt; &lt;span class="n"&gt;h&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;urcrnrlon&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;coords&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;extra&lt;/span&gt; &lt;span class="o"&gt;*&lt;/span&gt; &lt;span class="n"&gt;w&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;urcrnrlat&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;coords&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="mi"&gt;3&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;extra&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="mf"&gt;0.01&lt;/span&gt; &lt;span class="o"&gt;*&lt;/span&gt; &lt;span class="n"&gt;h&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;lat_ts&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;resolution&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;'i'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;suppress_ticks&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="bp"&gt;True&lt;/span&gt;
+&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;Now that we have our &lt;code&gt;Basemap&lt;/code&gt;, we can add the content of our Shapefile containing San Francisco's neighborhoods:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="n"&gt;m&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;readshapefile&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;
+    &lt;span class="s1"&gt;'/path/to/shapefile.shp'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="s1"&gt;'SF'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;color&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;'none'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;zorder&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="mi"&gt;2&lt;/span&gt;
+&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;At that point, we need to start creating polygons for each neighborhood so that we can convert them into patches that
+can be represented on maps. Two particular libraries can help us achieve what we need:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href="http://toblerity.github.com/shapely/"&gt;shapely&lt;/a&gt; is a library for analyzing and manipulating planar geometric objects in Python. 
+In particular, it is useful to create &lt;code&gt;Polygon&lt;/code&gt; and &lt;code&gt;Point&lt;/code&gt; objects, which for us maps to neighborhoods and crime occurrences.&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://pypi.python.org/pypi/descartes"&gt;descartes&lt;/a&gt; is the intermediary between shapely's polygons, and matplotlib's maps.
+It can be used to create &lt;code&gt;PolygonPatch&lt;/code&gt; patches which can be represented on a &lt;code&gt;Basemap&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;For that purpose we create a &lt;code&gt;DataFrame&lt;/code&gt; where for each neighborhood we will have a &lt;code&gt;PolygonPatch&lt;/code&gt; based on &lt;code&gt;Polygon&lt;/code&gt;
+objects extracted from the content of the Shapefile.&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="n"&gt;df_map&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;pd&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;DataFrame&lt;/span&gt;&lt;span class="p"&gt;({&lt;/span&gt;
+    &lt;span class="s1"&gt;'poly'&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;Polygon&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;xy&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;xy&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="n"&gt;m&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;SF&lt;/span&gt;&lt;span class="p"&gt;],&lt;/span&gt;
+    &lt;span class="s1"&gt;'ward_name'&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;ward&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'name'&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;ward&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="n"&gt;m&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;SF_info&lt;/span&gt;&lt;span class="p"&gt;]})&lt;/span&gt;
+&lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'area_m'&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'poly'&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;map&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="k"&gt;lambda&lt;/span&gt; &lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;area&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'area_km'&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'area_m'&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;/&lt;/span&gt; &lt;span class="mi"&gt;100000&lt;/span&gt;
+&lt;span class="c1"&gt;# Draw neighborhoods with polygons&lt;/span&gt;
+&lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'patches'&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'poly'&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;map&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="k"&gt;lambda&lt;/span&gt; &lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="n"&gt;PolygonPatch&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;
+    &lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;fc&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;'#000000'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;ec&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;'#ffffff'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;lw&lt;/span&gt;&lt;span class="o"&gt;=.&lt;/span&gt;&lt;span class="mi"&gt;5&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;alpha&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;zorder&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="mi"&gt;4&lt;/span&gt;&lt;span class="p"&gt;))&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;Now we're ready to draw the crime occurrences on the map. Since our data contains &lt;code&gt;Latitude&lt;/code&gt; and &lt;code&gt;Longitude&lt;/code&gt; columns,
+we can easily draw them after making sure they're within the polygon formed by San Francisco's neighborhoods.
+For example, to draw all occurrences of vehicle theft:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="n"&gt;m&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;scatter&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;
+    &lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;geom&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;x&lt;/span&gt; &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;geom&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="n"&gt;sf_night_vehicle_theft_points&lt;/span&gt;&lt;span class="p"&gt;],&lt;/span&gt;
+    &lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;geom&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;y&lt;/span&gt; &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;geom&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="n"&gt;sf_night_vehicle_theft_points&lt;/span&gt;&lt;span class="p"&gt;],&lt;/span&gt;
+    &lt;span class="mi"&gt;10&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;marker&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;'o'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;lw&lt;/span&gt;&lt;span class="o"&gt;=.&lt;/span&gt;&lt;span class="mi"&gt;25&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;facecolor&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;'cyan'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;edgecolor&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;'cyan'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;alpha&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="mf"&gt;0.75&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;antialiased&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="bp"&gt;True&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;label&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;'Vehicle Theft'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;zorder&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="mi"&gt;3&lt;/span&gt;
+&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;And of course we need to draw the neighborhoods polygons on the map as well, in order to visualize the distribution
+of crimes in the city. This can be done using a &lt;code&gt;matplotlib.collections.PatchCollection&lt;/code&gt; which can be created from
+the neighborhood patches computed previously.&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="n"&gt;ax&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;add_collection&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;PatchCollection&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'patches'&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;values&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;match_original&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="bp"&gt;True&lt;/span&gt;&lt;span class="p"&gt;))&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;The final result is a map of San Francisco with all neighborhood boundaries and crimes represented with different
+colors for the 6 categories of crimes that happen mostly at night.&lt;/p&gt;
+&lt;p&gt;&lt;img alt="Geospatial Distribution of crimes in SF" class="img-responsive" src="/images/crime-geospatial-distribution.png"/&gt;&lt;/p&gt;
+&lt;p&gt;We can get a general feeling that the center of the city (especially the Tenderloin) as well as the south are pretty
+agitated at night, while the west area is mostly quiet at night in terms of crimes. But this just gives us a general
+picture, when we would like to clearly see for each neighborhood how criminal it is. Of course this is a little biased
+towards highly-populated neighborhoods, but would still give a good enough idea where to be careful at night.&lt;/p&gt;
+&lt;p&gt;Before we can divide neighborhoods in criminality level, we need to compute the crime density per neighborhood. This
+can easily be done by identifying, for each crime occurrence, in which neighborhood it occurred, count those, and deduce
+the crime density.&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'count'&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'poly'&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;map&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="k"&gt;lambda&lt;/span&gt; &lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="nb"&gt;int&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="nb"&gt;len&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="nb"&gt;filter&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;prep&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;contains&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;sf_night_crimes_points&lt;/span&gt;&lt;span class="p"&gt;))))&lt;/span&gt;
+&lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'density_m'&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'count'&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;/&lt;/span&gt; &lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'area_m'&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;
+&lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'density_km'&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'count'&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;/&lt;/span&gt; &lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'area_km'&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;We can then apply a clustering algorithm to group neighborhoods into N criminality buckets. In our case, since there
+are not that many neighborhoods, 5 groups seem good enough. The algorithm we're using here is 
+&lt;a href="https://en.wikipedia.org/wiki/Jenks_natural_breaks_optimization"&gt;Jenks natural breaks optimization&lt;/a&gt;. This is a pretty
+common method used in cartography software, and is available as part of the &lt;a href="https://pysal.readthedocs.org/en/latest/"&gt;PySAL&lt;/a&gt;
+library.&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="kn"&gt;from&lt;/span&gt; &lt;span class="nn"&gt;pysal.esda.mapclassify&lt;/span&gt; &lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="n"&gt;Natural_Breaks&lt;/span&gt; &lt;span class="k"&gt;as&lt;/span&gt; &lt;span class="n"&gt;nb&lt;/span&gt;
+
+&lt;span class="n"&gt;breaks&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;nb&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;
+    &lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'density_km'&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;notnull&lt;/span&gt;&lt;span class="p"&gt;()]&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;density_km&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;values&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;initial&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="mi"&gt;300&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="n"&gt;k&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="mi"&gt;5&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;Once the algorithm converges, we have multiple bins that we need to join back to our original neighborhood patches to
+figure out to which bin each neighborhood belongs.&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="n"&gt;jb&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;pd&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;DataFrame&lt;/span&gt;&lt;span class="p"&gt;({&lt;/span&gt;&lt;span class="s1"&gt;'jenks_bins'&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="n"&gt;breaks&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;yb&lt;/span&gt;&lt;span class="p"&gt;},&lt;/span&gt; &lt;span class="n"&gt;index&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'density_km'&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;notnull&lt;/span&gt;&lt;span class="p"&gt;()]&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;index&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;drop&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;"jenks_bins"&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;inplace&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="bp"&gt;True&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;axis&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;errors&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s2"&gt;"ignore"&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;span class="n"&gt;df_map&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;join&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;jb&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;All that is left at that point is to draw again our &lt;code&gt;PatchCollection&lt;/code&gt;, with the small trick of using the &lt;code&gt;set_facecolor&lt;/code&gt;
+method to apply a color corresponding to the cluster. We used the &lt;code&gt;Blues&lt;/code&gt; colormap in this case.&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="n"&gt;cmap&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;plt&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;get_cmap&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;'Blues'&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;span class="n"&gt;pc&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;PatchCollection&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'patches'&lt;/span&gt;&lt;span class="p"&gt;],&lt;/span&gt; &lt;span class="n"&gt;match_original&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="bp"&gt;True&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;span class="n"&gt;norm&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;Normalize&lt;/span&gt;&lt;span class="p"&gt;()&lt;/span&gt;
+&lt;span class="n"&gt;pc&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;set_facecolor&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;cmap&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;norm&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;df_map&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;'jenks_bins'&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;values&lt;/span&gt;&lt;span class="p"&gt;)))&lt;/span&gt;
+&lt;span class="n"&gt;ax&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;add_collection&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;pc&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;&lt;img alt="Crime density clustering" class="img-responsive" src="/images/crime-density-tiling.png"/&gt;&lt;/p&gt;
+&lt;hr/&gt;
+&lt;p&gt;This was a pretty fun analysis, and a good introduction to geospatial analysis in Python with &lt;code&gt;fiona&lt;/code&gt;, &lt;code&gt;descartes&lt;/code&gt;,
+&lt;code&gt;shapely&lt;/code&gt;, &lt;code&gt;Basemap&lt;/code&gt; and &lt;code&gt;PySAL&lt;/code&gt;. We're barely scratching the surface here by looking at only 2 months worth of data - I
+might do a follow-up later with more data since we have daily data since January 2003 which is a lot more crime data
+to analyze.&lt;/p&gt;</summary><category term="python"></category><category term="pandas"></category><category term="gis"></category><category term="dataviz"></category><category term="data-science"></category><category term="clustering"></category></entry><entry><title>Yet Another Data Blog in Pelican</title><link href="http://gradientdissent.com/blog/yet-another-data-blog-in-pelican.html" rel="alternate"></link><updated>2016-01-31T11:47:00-05:00</updated><author><name>Charles Menguy</name></author><id>tag:gradientdissent.com,2016-01-31:blog/yet-another-data-blog-in-pelican.html</id><summary type="html">&lt;p&gt;Python and Data go very well together these days, so I've decided to move from Octopress to Pelican.
+It was becoming a bit embarrassing not being able to hack the internals of my blog (not that I have anything against Ruby,
+but it's just not one of my primary languages).
+So after a gap of almost 2 years, I'm officially running on Pelican, and so far I'm thrilled about what it brings to the
+table.&lt;/p&gt;
+&lt;p&gt;Why Pelican, you might ask? And what even is Pelican? Let me try to answer all of that in this inaugural post, which will I hope offer some insight to other folks looking at static websites.&lt;/p&gt;
+&lt;h1&gt;Why I said no to Octopress&lt;/h1&gt;
+&lt;p&gt;So, like I said, Octopress being in Ruby has always held me down, but it wasn't the only issue. The whole transition to
+Octopress 3.0 seemed a bit confusing to me, and I was reading many blog posts also complaining about it.&lt;/p&gt;
+&lt;table class="table-hover table table-striped"&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;Feature\Engine&lt;/th&gt;
+&lt;th&gt;&lt;strong&gt;Octopress&lt;/strong&gt;&lt;/th&gt;
+&lt;th&gt;&lt;strong&gt;Pelican&lt;/strong&gt;&lt;/th&gt;
+&lt;th&gt;&lt;strong&gt;Nikola&lt;/strong&gt;&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;&lt;strong&gt;Community&lt;/strong&gt;&lt;/td&gt;
+&lt;td&gt;9,300 stars, 3,100 forks&lt;/td&gt;
+&lt;td&gt;5,400 stars, 1,200 forks&lt;/td&gt;
+&lt;td&gt;920 stars, 250 forks&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;&lt;strong&gt;Language&lt;/strong&gt;&lt;/td&gt;
+&lt;td&gt;Ruby&lt;/td&gt;
+&lt;td&gt;Python&lt;/td&gt;
+&lt;td&gt;Python&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;&lt;strong&gt;Themes&lt;/strong&gt;&lt;/td&gt;
+&lt;td&gt;a lot&lt;/td&gt;
+&lt;td&gt;100+&lt;/td&gt;
+&lt;td&gt;30+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;&lt;strong&gt;Deployment&lt;/strong&gt;&lt;/td&gt;
+&lt;td&gt;Mainly GH pages, more in 3.0&lt;/td&gt;
+&lt;td&gt;GH pages, S3, Dropbox, FTP, CloudFiles, ...&lt;/td&gt;
+&lt;td&gt;Anything, but commands have to be specified manually&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;&lt;strong&gt;IPython notebook support&lt;/strong&gt;&lt;/td&gt;
+&lt;td&gt;Plugin&lt;/td&gt;
+&lt;td&gt;Plugin&lt;/td&gt;
+&lt;td&gt;Native&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;I finally settled for Pelican, because it had a pretty good community behind it, a decent amount of themes available,
+decent support for IPython notebook and, well, it's Python-based !&lt;/p&gt;
+&lt;p&gt;Nikola looked really good too, and some of their themes were outstanding, but I was a bit worried about the lack of
+community behind it. Also the fact that I had trouble getting it to work on Python 2.7 made me a little bit worried.&lt;/p&gt;
+&lt;h1&gt;Crafting the right look &amp;amp; feel&lt;/h1&gt;
+&lt;p&gt;One thing I've been struggling with Pelican, is finding the right theme for my blog.
+The &lt;a href="https://github.com/DandyDev/pelican-bootstrap3"&gt;pelican-bootstrap3&lt;/a&gt; blog looks pretty good, but I also really liked
+the &lt;a href="https://github.com/KenMercusLai/BT3-Flat"&gt;BT3-flat&lt;/a&gt;, but I kinda wanted something in the middle, simple yet easy on
+the eyes.&lt;/p&gt;
+&lt;p&gt;To that end I've extended the pelican-bootstrap3 theme to fit my needs. I'm really really not a front-end person so it
+has been quite a bore, but I'm quite pleased with the final result (and hope I never have to touch this ever !)&lt;/p&gt;
+&lt;p&gt;First thing I wanted was the social buttons in the top bar instead of on the side - they look really out-of-place in 
+bootstrap3, and to me felt much more natural at the top. For that, I modified &lt;strong&gt;pelican-bootstrap3/templates/base.html&lt;/strong&gt;
+like so:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;{% if SOCIAL and INCLUDE_SOCIAL_IN_NAVBAR %}
+    &lt;span class="c"&gt;&amp;lt;!-- social media icons --&amp;gt;&lt;/span&gt;
+    &lt;span class="p"&gt;&amp;lt;&lt;/span&gt;&lt;span class="nt"&gt;ul&lt;/span&gt; &lt;span class="na"&gt;class&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;"nav navbar-nav navbar-right social"&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&lt;/span&gt;
+        {% for s in SOCIAL %}
+            {% if s[2] %}
+                {% set name_sanitized = s[2]|lower|replace('+','-plus')|replace(' ','-') %}
+            {% else %}
+                {% set name_sanitized = s[0]|lower|replace('+','-plus')|replace(' ','-') %}
+            {% endif %}
+            {% set iconattributes = '"fa fa-lg fa-' ~ name_sanitized ~ '"' %}
+            &lt;span class="p"&gt;&amp;lt;&lt;/span&gt;&lt;span class="nt"&gt;li&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&amp;lt;&lt;/span&gt;&lt;span class="nt"&gt;a&lt;/span&gt; &lt;span class="na"&gt;href&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;"{{ s[1] }}"&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&amp;lt;&lt;/span&gt;&lt;span class="nt"&gt;i&lt;/span&gt; &lt;span class="na"&gt;class&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;{{&lt;/span&gt; &lt;span class="na"&gt;iconattributes&lt;/span&gt; &lt;span class="err"&gt;}}&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&amp;lt;/&lt;/span&gt;&lt;span class="nt"&gt;i&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&amp;lt;/&lt;/span&gt;&lt;span class="nt"&gt;a&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&amp;lt;/&lt;/span&gt;&lt;span class="nt"&gt;li&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&lt;/span&gt;
+        {% endfor %}
+    &lt;span class="p"&gt;&amp;lt;/&lt;/span&gt;&lt;span class="nt"&gt;ul&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&lt;/span&gt;
+{% endif %}
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;I also wanted to use the Pelican &lt;em&gt;about me&lt;/em&gt; facilities, but found they rendered pretty poorly in bootstrap3.
+For me a good &lt;em&gt;about me&lt;/em&gt; element should contain the following:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Personal information&lt;/li&gt;
+&lt;li&gt;List of active tags&lt;/li&gt;
+&lt;li&gt;A downloadable resume (we'll discuss that in more details in the next section)&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;I enclosed the &lt;em&gt;about me&lt;/em&gt; section in a &lt;code&gt;well-sm&lt;/code&gt; class in &lt;strong&gt;pelican-bootstrap3/templates/includes/aboutme.html&lt;/strong&gt;:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="p"&gt;&amp;lt;&lt;/span&gt;&lt;span class="nt"&gt;div&lt;/span&gt; &lt;span class="na"&gt;id&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;"aboutme"&lt;/span&gt; &lt;span class="na"&gt;class&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;"well well-sm"&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;Then inside that, I made it so every field can be filled from &lt;strong&gt;pelicanconf.py&lt;/strong&gt; optionally:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;{% if ABOUT_ME_TOPICS %}
+    &lt;span class="p"&gt;&amp;lt;&lt;/span&gt;&lt;span class="nt"&gt;div&lt;/span&gt; &lt;span class="na"&gt;class&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;"sub-name"&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&lt;/span&gt;{{ ABOUT_ME_TOPICS }}&lt;span class="p"&gt;&amp;lt;/&lt;/span&gt;&lt;span class="nt"&gt;div&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&lt;/span&gt;
+{% endif %}
+{% if ABOUT_ME_EMAIL %}
+    &lt;span class="p"&gt;&amp;lt;&lt;/span&gt;&lt;span class="nt"&gt;div&lt;/span&gt; &lt;span class="na"&gt;class&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;"contact"&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&lt;/span&gt;{{ ABOUT_ME_EMAIL }}&lt;span class="p"&gt;&amp;lt;/&lt;/span&gt;&lt;span class="nt"&gt;div&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&lt;/span&gt;
+{% endif %}
+{% if ABOUT_ME_LOCATION %}
+    &lt;span class="p"&gt;&amp;lt;&lt;/span&gt;&lt;span class="nt"&gt;div&lt;/span&gt; &lt;span class="na"&gt;class&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;"location"&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&lt;/span&gt;{{ ABOUT_ME_LOCATION }}&lt;span class="p"&gt;&amp;lt;/&lt;/span&gt;&lt;span class="nt"&gt;div&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&lt;/span&gt;
+{% endif %}
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;At that point it's super easy to control your &lt;em&gt;about me&lt;/em&gt; from the Pelican config. For example, here is what I have:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="n"&gt;ABOUT_ME&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="bp"&gt;True&lt;/span&gt;
+&lt;span class="n"&gt;ABOUT_ME_TOPICS&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s2"&gt;"big data | data science | cloud computing"&lt;/span&gt;
+&lt;span class="n"&gt;ABOUT_ME_EMAIL&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s2"&gt;"menguy.charles@gmail.com"&lt;/span&gt;
+&lt;span class="n"&gt;ABOUT_ME_LOCATION&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s2"&gt;"New York City, United States"&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;Regarding the tags, I took them from the sidebar and added them in the &lt;em&gt;about me&lt;/em&gt; section instead inline, which looked
+more compact and aesthetically pleasing than in the sidebar to me:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;{% if 'tag_cloud' in PLUGINS and DISPLAY_TAGS_ON_ABOUTME %}
+    {% if DISPLAY_TAGS_INLINE %}
+        {% set tags = tag_cloud | sort(attribute='0') %}
+    {% else %}
+        {% set tags = tag_cloud | sort(attribute='1') %}
+    {% endif %}
+    &lt;span class="p"&gt;&amp;lt;&lt;/span&gt;&lt;span class="nt"&gt;br&lt;/span&gt;&lt;span class="p"&gt;/&amp;gt;&lt;/span&gt;
+    &lt;span class="p"&gt;&amp;lt;&lt;/span&gt;&lt;span class="nt"&gt;ul&lt;/span&gt; &lt;span class="na"&gt;class&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;"list-group {% if DISPLAY_TAGS_INLINE %}list-inline tagcloud{% endif %}"&lt;/span&gt; &lt;span class="na"&gt;id&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;"tags"&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&lt;/span&gt;
+        {% for tag in tag_cloud %}
+            &lt;span class="p"&gt;&amp;lt;&lt;/span&gt;&lt;span class="nt"&gt;li&lt;/span&gt; &lt;span class="na"&gt;class&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;"list-group-item tag-{{ tag.1 }}"&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&lt;/span&gt;
+                &lt;span class="p"&gt;&amp;lt;&lt;/span&gt;&lt;span class="nt"&gt;a&lt;/span&gt; &lt;span class="na"&gt;class&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;"tag"&lt;/span&gt; &lt;span class="na"&gt;href&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;"{{ SITEURL }}/{{ tag.0.url }}"&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&lt;/span&gt;
+                    #{{ tag.0 }}
+                &lt;span class="p"&gt;&amp;lt;/&lt;/span&gt;&lt;span class="nt"&gt;a&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&lt;/span&gt;
+            &lt;span class="p"&gt;&amp;lt;/&lt;/span&gt;&lt;span class="nt"&gt;li&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&lt;/span&gt;
+        {% endfor %}
+    &lt;span class="p"&gt;&amp;lt;/&lt;/span&gt;&lt;span class="nt"&gt;ul&lt;/span&gt;&lt;span class="p"&gt;&amp;gt;&lt;/span&gt;
+{% endif %}
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;And to top it off, I created a &lt;code&gt;CUSTOM_CSS&lt;/code&gt; to adjust things a little bit and entered that in &lt;strong&gt;pelicanconf.py&lt;/strong&gt;.&lt;/p&gt;
+&lt;p&gt;If you like the look &amp;amp; feel of this blog, feel free to reuse my code - I haven't made it a separate project because
+it feels kind of an hybrid between two pre-existing themes, but if there is demand I can always create a separate
+repo for it:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;git clone -b sources git@github.com:cmenguy/cmenguy.github.io.git
+&lt;/pre&gt;&lt;/div&gt;
+&lt;h1&gt;Resume Automation&lt;/h1&gt;
+&lt;p&gt;One thing that I wanted out of this blog is an easy, low-maintenance and automated way to update and share my resume.
+An HTML is totally fine these days, but you also need a PDF resume in most cases, and that's where it gets tricky:
+oftentimes they PDF and HTML get out-of-sync, creating the PDF goes through a different channel so you end up having
+to replicate what you already wrote in HTML.&lt;/p&gt;
+&lt;p&gt;To solve that, I wrote a Pelican plugin called &lt;a href="https://github.com/cmenguy/pelican-resume"&gt;pelican-resume&lt;/a&gt; to take care
+of this automatically. With it, everytime you run &lt;code&gt;pelican content&lt;/code&gt;, if you have a Markdown file under &lt;strong&gt;pages/resume.md&lt;/strong&gt;
+it will automatically create a PDF resume that can be embedded into your Pelican blog.&lt;/p&gt;
+&lt;p&gt;How to install it? Easy, with pip:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;pip install pelican-resume
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;How to use it? Simply include it in your list of plugins in &lt;strong&gt;pelicanconf.py&lt;/strong&gt;:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="n"&gt;PLUGINS&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="p"&gt;[&lt;/span&gt;
+    &lt;span class="c1"&gt;# ...&lt;/span&gt;
+    &lt;span class="s2"&gt;"pelican_resume"&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+    &lt;span class="c1"&gt;# ...&lt;/span&gt;
+&lt;span class="p"&gt;]&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;The default settings will take your &lt;strong&gt;resume.md&lt;/strong&gt; and create a PDF resume using the &lt;a href="https://www.ctan.org/pkg/moderncv"&gt;moderncv&lt;/a&gt;
+style under &lt;strong&gt;pdfs/resume.pdf&lt;/strong&gt; in your &lt;code&gt;OUTPUT_PATH&lt;/code&gt;. All of this can be customized, and you are welcome to look at the
+README in the repository for further information. Feel free to also contribute to it if you have custom CSS for different
+resume styles, if you want to support something else than Markdown in input, ...&lt;/p&gt;
+&lt;h1&gt;Automation &amp;amp; Ease of use&lt;/h1&gt;
+&lt;p&gt;One of the things I hated with Octopress, is the fact that I constantly ran into conflicts when deploying to master,
+and it made me want to cry.&lt;/p&gt;
+&lt;p&gt;Here, I'm actually using &lt;a href="https://travis-ci.org/"&gt;Travis&lt;/a&gt; to automatically and continuously deploy on every push without
+having to deal with any of the manual work myself, which is a more than welcome change.&lt;/p&gt;
+&lt;p&gt;All of the code samples shown below are contained in the &lt;code&gt;.travis.yml&lt;/code&gt; file which is placed at the root of the repository
+in the branch containing your Pelican sources (I called mine &lt;strong&gt;sources&lt;/strong&gt;).&lt;/p&gt;
+&lt;p&gt;The first thing we need to tell Travis is that it should only build in the &lt;strong&gt;sources&lt;/strong&gt; branch, and not in master:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="l l-Scalar l-Scalar-Plain"&gt;branches&lt;/span&gt;&lt;span class="p p-Indicator"&gt;:&lt;/span&gt;
+  &lt;span class="l l-Scalar l-Scalar-Plain"&gt;only&lt;/span&gt;&lt;span class="p p-Indicator"&gt;:&lt;/span&gt;
+  &lt;span class="p p-Indicator"&gt;-&lt;/span&gt; &lt;span class="l l-Scalar l-Scalar-Plain"&gt;sources&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;Another thing I want is to be notified on every failure or success - I usually don't, but for a blog I like to be extra
+sure that things are working ok when I push a new article.&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="l l-Scalar l-Scalar-Plain"&gt;notifications&lt;/span&gt;&lt;span class="p p-Indicator"&gt;:&lt;/span&gt;
+  &lt;span class="l l-Scalar l-Scalar-Plain"&gt;email&lt;/span&gt;&lt;span class="p p-Indicator"&gt;:&lt;/span&gt;
+    &lt;span class="l l-Scalar l-Scalar-Plain"&gt;on_success&lt;/span&gt;&lt;span class="p p-Indicator"&gt;:&lt;/span&gt; &lt;span class="l l-Scalar l-Scalar-Plain"&gt;always&lt;/span&gt;
+    &lt;span class="l l-Scalar l-Scalar-Plain"&gt;on_failure&lt;/span&gt;&lt;span class="p p-Indicator"&gt;:&lt;/span&gt; &lt;span class="l l-Scalar l-Scalar-Plain"&gt;always&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;Next the main issue I had with Travis was about installing everything required to build the Pelican blog. There's actually
+a bunch of packages needed here:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Python modules: pelican, markdown, beautifulsoup4, IPython, ghp-import and pelican-resume (see &lt;a href="https://github.com/cmenguy/cmenguy.github.io/blob/sources/requirements.txt"&gt;requirements.txt&lt;/a&gt;)&lt;/li&gt;
+&lt;li&gt;Pandoc - somehow if we install it via Travis' &lt;code&gt;apt_packages&lt;/code&gt; it uses an old version which produces poor formatting, so
+we need to install it manually&lt;/li&gt;
+&lt;li&gt;Wkhtmltopdf - this is not even available via &lt;code&gt;apt-get&lt;/code&gt; for Travis, so it needs to be installed manually&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;The code snippet below contains the necessary commands to install all these dependencies on Travis:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="l l-Scalar l-Scalar-Plain"&gt;install&lt;/span&gt;&lt;span class="p p-Indicator"&gt;:&lt;/span&gt;
+    &lt;span class="c1"&gt;# Install required Python modules&lt;/span&gt;
+    &lt;span class="p p-Indicator"&gt;-&lt;/span&gt; &lt;span class="l l-Scalar l-Scalar-Plain"&gt;pip install -r requirements.txt&lt;/span&gt;
+
+    &lt;span class="c1"&gt;# Install pandoc manually since it's disallowed with apt-get in Travis&lt;/span&gt;
+    &lt;span class="p p-Indicator"&gt;-&lt;/span&gt; &lt;span class="l l-Scalar l-Scalar-Plain"&gt;mkdir $HOME/pandoc&lt;/span&gt;
+    &lt;span class="p p-Indicator"&gt;-&lt;/span&gt; &lt;span class="l l-Scalar l-Scalar-Plain"&gt;curl -O https://s3.amazonaws.com/rstudio-buildtools/pandoc-1.12.3.zip&lt;/span&gt;
+    &lt;span class="p p-Indicator"&gt;-&lt;/span&gt; &lt;span class="l l-Scalar l-Scalar-Plain"&gt;unzip -j pandoc-1.12.3.zip pandoc-1.12.3/linux/debian/x86_64/pandoc -d $HOME/pandoc&lt;/span&gt;
+    &lt;span class="p p-Indicator"&gt;-&lt;/span&gt; &lt;span class="l l-Scalar l-Scalar-Plain"&gt;chmod +x $HOME/pandoc/pandoc&lt;/span&gt;
+    &lt;span class="p p-Indicator"&gt;-&lt;/span&gt; &lt;span class="l l-Scalar l-Scalar-Plain"&gt;rm pandoc-1.12.3.zip&lt;/span&gt;
+    &lt;span class="p p-Indicator"&gt;-&lt;/span&gt; &lt;span class="l l-Scalar l-Scalar-Plain"&gt;export PATH="$HOME/pandoc:$PATH"&lt;/span&gt;
+    &lt;span class="p p-Indicator"&gt;-&lt;/span&gt; &lt;span class="l l-Scalar l-Scalar-Plain"&gt;pandoc --version&lt;/span&gt;
+
+    &lt;span class="c1"&gt;# Install wkhtmltopdf manually since not available in apt-get&lt;/span&gt;
+    &lt;span class="p p-Indicator"&gt;-&lt;/span&gt; &lt;span class="l l-Scalar l-Scalar-Plain"&gt;mkdir wkhtmltopdf&lt;/span&gt;
+    &lt;span class="p p-Indicator"&gt;-&lt;/span&gt; &lt;span class="l l-Scalar l-Scalar-Plain"&gt;wget http://download.gna.org/wkhtmltopdf/0.12/0.12.3/wkhtmltox-0.12.3_linux-generic-amd64.tar.xz&lt;/span&gt;
+    &lt;span class="p p-Indicator"&gt;-&lt;/span&gt; &lt;span class="l l-Scalar l-Scalar-Plain"&gt;tar --xz -xvf wkhtmltox-0.12.3_linux-generic-amd64.tar.xz -C wkhtmltopdf&lt;/span&gt;
+    &lt;span class="p p-Indicator"&gt;-&lt;/span&gt; &lt;span class="l l-Scalar l-Scalar-Plain"&gt;export PATH=$PATH:$PWD/wkhtmltopdf/wkhtmltox/bin/&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;At that point Travis has everything it needs to build the blog and it just needs to run a &lt;code&gt;make publish&lt;/code&gt;. I also save
+the log and place it in the output so I can easily see what happened in case something goes wrong:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="l l-Scalar l-Scalar-Plain"&gt;script&lt;/span&gt;&lt;span class="p p-Indicator"&gt;:&lt;/span&gt;
+&lt;span class="p p-Indicator"&gt;-&lt;/span&gt; &lt;span class="l l-Scalar l-Scalar-Plain"&gt;pip freeze; make DEBUG=1 publish 2&amp;gt;&amp;amp;1 | tee -a build.log; cp build.log output/build.log&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;And finally it needs to publish to Github in case of success. This part is a little bit tricky, because we need to pass
+an authentication token to Travis so it can push directly to the master branch. To do that I've modified the &lt;strong&gt;Makefile&lt;/strong&gt;
+to use the &lt;code&gt;GH_TOKEN&lt;/code&gt; whose encrypted value is passed in &lt;strong&gt;.travis.yml&lt;/strong&gt; via the &lt;code&gt;env.global.secure&lt;/code&gt; field:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="l l-Scalar l-Scalar-Plain"&gt;after_success&lt;/span&gt;&lt;span class="p p-Indicator"&gt;:&lt;/span&gt; &lt;span class="l l-Scalar l-Scalar-Plain"&gt;make github&lt;/span&gt;
+&lt;span class="l l-Scalar l-Scalar-Plain"&gt;env&lt;/span&gt;&lt;span class="p p-Indicator"&gt;:&lt;/span&gt;
+  &lt;span class="l l-Scalar l-Scalar-Plain"&gt;global&lt;/span&gt;&lt;span class="p p-Indicator"&gt;:&lt;/span&gt;
+    &lt;span class="l l-Scalar l-Scalar-Plain"&gt;secure&lt;/span&gt;&lt;span class="p p-Indicator"&gt;:&lt;/span&gt; &lt;span class="l l-Scalar l-Scalar-Plain"&gt;&amp;lt;encrypted-gh-token&amp;gt;&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;To encrypt the token, you need to create one in the Github UI, and then encrypt it via the &lt;code&gt;travis&lt;/code&gt; gem:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;gem install travis
+travis encrypt GH_TOKEN=&amp;lt;gh-token&amp;gt;
+&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;And voila ! With this simple configuration, you get a fully automated blog where you only need to fill your Markdown
+pages, and Travis will take care of generating the relevant HTML and producing your PDF resume out of it.&lt;/p&gt;
+&lt;hr/&gt;
+&lt;p&gt;With that system in place it should be extremely easy for me to keep updating my blog without wanting to kill myself
+everytime I need to deploy something live.&lt;/p&gt;
+&lt;p&gt;Now that the boring UI thing is out of the way, I pledge to write at least 1 article per month on various data topics.
+Some things I'm planning to focus on in this blog:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Looking at Open Data, finding some insights and sharing them.&lt;/li&gt;
+&lt;li&gt;Latest Big Data trends, and how they can be applied in a Data Science context.&lt;/li&gt;
+&lt;li&gt;A new look at existing Big Data technologies.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;Stay tuned for more !&lt;/p&gt;</summary><category term="pelican"></category><category term="python"></category><category term="blog"></category></entry></feed>

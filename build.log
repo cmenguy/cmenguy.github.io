@@ -1,0 +1,208 @@
+pelican /home/travis/build/cmenguy/cmenguy.github.io/content -o /home/travis/build/cmenguy/cmenguy.github.io/output -s /home/travis/build/cmenguy/cmenguy.github.io/publishconf.py  -D
+DEBUG: Temporarily adding PLUGIN_PATHS to system path
+DEBUG: Loading plugin `liquid_tags.img`
+DEBUG: Registering plugin `liquid_tags.img`
+DEBUG: Loading plugin `liquid_tags.video`
+DEBUG: Registering plugin `liquid_tags.video`
+DEBUG: Loading plugin `liquid_tags.youtube`
+DEBUG: Registering plugin `liquid_tags.youtube`
+DEBUG: Loading plugin `liquid_tags.vimeo`
+DEBUG: Registering plugin `liquid_tags.vimeo`
+DEBUG: Loading plugin `liquid_tags.include_code`
+DEBUG: Registering plugin `liquid_tags.include_code`
+DEBUG: Loading plugin `liquid_tags.notebook`
+/home/travis/build/cmenguy/cmenguy.github.io/plugins/liquid_tags/notebook.py:66: UserWarning: Pelican plugin is not designed to work with IPython versions greater than 1.x. CSS styles have changed in later releases.
+  warnings.warn("Pelican plugin is not designed to work with IPython "
+/home/travis/virtualenv/python3.5.0/lib/python3.5/site-packages/IPython/nbconvert.py:13: ShimWarning: The `IPython.nbconvert` package has been deprecated. You should import from nbconvert instead.
+  "You should import from nbconvert instead.", ShimWarning)
+ERROR: Cannot load plugin `liquid_tags.notebook`
+  | ImportError: No module named 'IPython.nbconvert.filters'
+DEBUG: Loading plugin `tipue_search`
+DEBUG: Registering plugin `tipue_search`
+DEBUG: Loading plugin `tag_cloud`
+DEBUG: Registering plugin `tag_cloud`
+DEBUG: Loading plugin `pelican_resume`
+DEBUG: Registering plugin `pelican_resume`
+DEBUG: Loading plugin `pelican-bootstrapify`
+DEBUG: Registering plugin `pelican-bootstrapify`
+DEBUG: Restoring system path
+DEBUG: Found generator: <class 'tipue_search.tipue_search.Tipue_Search_JSON_Generator'>
+DEBUG: Template list: ['!simple/archives.html', '!simple/article.html', '!simple/author.html', '!simple/authors.html', '!simple/base.html', '!simple/categories.html', '!simple/category.html', '!simple/gosquared.html', '!simple/index.html', '!simple/page.html', '!simple/pagination.html', '!simple/period_archives.html', '!simple/tag.html', '!simple/tags.html', '!simple/translations.html', 'archives.html', 'article.html', 'article_list.html', 'author.html', 'authors.html', 'base.html', 'categories.html', 'category.html', 'gosquared.html', 'includes/aboutme.html', 'includes/addthis.html', 'includes/article_info.html', 'includes/banner.html', 'includes/cc-license.html', 'includes/comment_count.html', 'includes/comments.html', 'includes/disqus_script.html', 'includes/footer.html', 'includes/ga.html', 'includes/github-js.html', 'includes/github.html', 'includes/links.html', 'includes/liquid_tags_nb_header.html', 'includes/minify_tipuesearch.html', 'includes/pagination.html', 'includes/piwik.html', 'includes/related-posts.html', 'includes/series.html', 'includes/shariff.html', 'includes/sidebar-images.html', 'includes/sidebar.html', 'includes/taglist.html', 'includes/translations.html', 'includes/twitter_cards.html', 'includes/twitter_timeline.html', 'index.html', 'page.html', 'pagination.html', 'period_archives.html', 'search.html', 'tag.html', 'tags.html', 'translations.html']
+DEBUG: Directory already removed: /home/travis/build/cmenguy/cmenguy.github.io/output
+DEBUG: Read file crime-analytics-sf-seattle.md -> Article
+DEBUG: Signal article_generator_preread.send(ArticlesGenerator)
+DEBUG: Successfuly imported extension module "markdown.extensions.codehilite".
+DEBUG: Successfully loaded extension "markdown.extensions.codehilite.CodeHiliteExtension".
+DEBUG: Successfuly imported extension module "markdown.extensions.extra".
+DEBUG: Successfuly imported extension module "markdown.extensions.smart_strong".
+DEBUG: Successfully loaded extension "markdown.extensions.smart_strong.SmartEmphasisExtension".
+DEBUG: Successfuly imported extension module "markdown.extensions.fenced_code".
+DEBUG: Successfully loaded extension "markdown.extensions.fenced_code.FencedCodeExtension".
+DEBUG: Successfuly imported extension module "markdown.extensions.footnotes".
+DEBUG: Successfully loaded extension "markdown.extensions.footnotes.FootnoteExtension".
+DEBUG: Successfuly imported extension module "markdown.extensions.attr_list".
+DEBUG: Successfully loaded extension "markdown.extensions.attr_list.AttrListExtension".
+DEBUG: Successfuly imported extension module "markdown.extensions.def_list".
+DEBUG: Successfully loaded extension "markdown.extensions.def_list.DefListExtension".
+DEBUG: Successfuly imported extension module "markdown.extensions.tables".
+DEBUG: Successfully loaded extension "markdown.extensions.tables.TableExtension".
+DEBUG: Successfuly imported extension module "markdown.extensions.abbr".
+DEBUG: Successfully loaded extension "markdown.extensions.abbr.AbbrExtension".
+DEBUG: Successfully loaded extension "markdown.extensions.extra.ExtraExtension".
+DEBUG: Successfully loaded extension "liquid_tags.mdx_liquid_tags.LiquidTags".
+DEBUG: Successfuly imported extension module "markdown.extensions.meta".
+DEBUG: Successfully loaded extension "markdown.extensions.meta.MetaExtension".
+DEBUG: Signal article_generator_context.send(ArticlesGenerator, <metadata>)
+DEBUG: Read file yet-another-migration-pelican.md -> Article
+Loading pages (1/6)
+[>                                                           ] 0%[======>                                                     ] 10%[=============>                                              ] 23%[===============>                                            ] 25%[============================================================] 100%Counting pages (2/6)                                               
+[============================================================] Object 1 of 1Resolving links (4/6)                                                       
+[============================================================] Object 1 of 1Loading headers and footers (5/6)                                           
+Printing pages (6/6)
+[>                                                           ] Preparing[==============================>                             ] Page 1 of 2[============================================================] Page 2 of 2Done                                                                      
+DEBUG: Read file pages/about.md -> Page
+DEBUG: Signal page_generator_preread.send(PagesGenerator)
+DEBUG: Signal page_generator_context.send(PagesGenerator, <metadata>)
+DEBUG: Read file pages/resume.md -> Page
+DEBUG: Read file images/avatar.jpg -> Static
+DEBUG: Signal static_generator_preread.send(StaticGenerator)
+DEBUG: Signal static_generator_context.send(StaticGenerator, <metadata>)
+DEBUG: Read file images/banner.jpg -> Static
+DEBUG: Read file images/banner_src.jpg -> Static
+DEBUG: Read file images/crime-clustermap-sf-seattle.png -> Static
+DEBUG: Read file images/crime-density-tiling.png -> Static
+DEBUG: Read file images/crime-geospatial-distribution.png -> Static
+DEBUG: Read file images/crime-temporal-distribution.png -> Static
+DEBUG: Read file images/logo.jpg -> Static
+DEBUG: Read file images/logo2.jpg -> Static
+DEBUG: Read file images/logo2_black.jpg -> Static
+DEBUG: Read file images/logo_black.jpg -> Static
+DEBUG: Read file extra/robots.txt -> Static
+DEBUG: Read file extra/favicon.ico -> Static
+DEBUG: Read file extra/custom.css -> Static
+DEBUG: Read file extra/CNAME -> Static
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/feeds/all.atom.xml
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/feeds/misc.atom.xml
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/blog/analyzing-2-months-of-real-crime-data-from-san-francisco-and-seattle.html
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/blog/yet-another-data-blog-in-pelican.html
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/index.html
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/categories.html
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/authors.html
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/archives.html
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/search.html
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/tags/pelican.html
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/tags/dataviz.html
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/tags/blog.html
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/tags/data-science.html
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/tags/gis.html
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/tags/pandas.html
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/tags/python.html
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/tags/clustering.html
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/category/misc.html
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/author/charles-menguy.html
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/pages/about.html
+-> Writing /home/travis/build/cmenguy/cmenguy.github.io/output/pages/resume.html
+-> Creating directory /home/travis/build/cmenguy/cmenguy.github.io/output/theme
+-> Creating directory /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.amelia.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.amelia.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.cerulean.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.cerulean.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.cosmo.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.cosmo.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.cupid.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.cupid.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.custom.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.custom.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.cyborg.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.cyborg.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.darkly.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.darkly.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.flatly.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.flatly.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.journal.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.journal.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.lumen.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.lumen.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.paper.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.paper.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.readable-old.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.readable-old.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.readable.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.readable.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.sandstone.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.sandstone.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.shamrock.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.shamrock.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.simplex.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.simplex.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.slate.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.slate.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.spacelab.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.spacelab.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.superhero.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.superhero.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.united.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.united.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/bootstrap.yeti.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/bootstrap.yeti.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/font-awesome.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/font-awesome.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/font-awesome.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/font-awesome.min.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/html4css1.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/html4css1.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/style.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/style.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/typogrify.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/typogrify.css
+-> Creating directory /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/autumn.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/autumn.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/borland.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/borland.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/bw.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/bw.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/colorful.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/colorful.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/default.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/default.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/emacs.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/emacs.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/friendly.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/friendly.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/fruity.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/fruity.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/github.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/github.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/igor.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/igor.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/manni.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/manni.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/monokai.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/monokai.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/murphy.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/murphy.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/native.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/native.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/paraiso-dark.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/paraiso-dark.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/paraiso-light.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/paraiso-light.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/pastie.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/pastie.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/perldoc.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/perldoc.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/rrt.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/rrt.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/solarizeddark.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/solarizeddark.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/solarizedlight.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/solarizedlight.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/tango.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/tango.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/trac.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/trac.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/vim.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/vim.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/vs.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/vs.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/xcode.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/xcode.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/pygments/zenburn.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/pygments/zenburn.css
+-> Creating directory /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/shariff
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/css/shariff/shariff.min.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/css/shariff/shariff.min.css
+-> Creating directory /home/travis/build/cmenguy/cmenguy.github.io/output/theme/fonts
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/fonts/FontAwesome.otf to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/fonts/FontAwesome.otf
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/fonts/fontawesome-webfont.eot to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/fonts/fontawesome-webfont.eot
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/fonts/fontawesome-webfont.svg to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/fonts/fontawesome-webfont.svg
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/fonts/fontawesome-webfont.ttf to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/fonts/fontawesome-webfont.ttf
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/fonts/fontawesome-webfont.woff to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/fonts/fontawesome-webfont.woff
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/fonts/fontawesome-webfont.woff2 to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/fonts/fontawesome-webfont.woff2
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/fonts/glyphicons-halflings-regular.eot to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/fonts/glyphicons-halflings-regular.eot
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/fonts/glyphicons-halflings-regular.svg to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/fonts/glyphicons-halflings-regular.svg
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/fonts/glyphicons-halflings-regular.ttf to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/fonts/glyphicons-halflings-regular.ttf
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/fonts/glyphicons-halflings-regular.woff to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/fonts/glyphicons-halflings-regular.woff
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/fonts/glyphicons-halflings-regular.woff2 to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/fonts/glyphicons-halflings-regular.woff2
+-> Creating directory /home/travis/build/cmenguy/cmenguy.github.io/output/theme/js
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/js/bodypadding.js to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/js/bodypadding.js
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/js/bootstrap.min.js to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/js/bootstrap.min.js
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/js/github.js to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/js/github.js
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/js/jXHR.js to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/js/jXHR.js
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/js/jquery.min.js to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/js/jquery.min.js
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/js/respond.min.js to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/js/respond.min.js
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/js/shariff.min.js to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/js/shariff.min.js
+-> Creating directory /home/travis/build/cmenguy/cmenguy.github.io/output/theme/tipuesearch
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/tipuesearch/tipuesearch.css to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/tipuesearch/tipuesearch.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/tipuesearch/tipuesearch.js to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/tipuesearch/tipuesearch.js
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/tipuesearch/tipuesearch.min.js to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/tipuesearch/tipuesearch.min.js
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/tipuesearch/tipuesearch_content.js to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/tipuesearch/tipuesearch_content.js
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/tipuesearch/tipuesearch_set.js to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/tipuesearch/tipuesearch_set.js
+-> Creating directory /home/travis/build/cmenguy/cmenguy.github.io/output/theme/tipuesearch/img
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/tipuesearch/img/loader.gif to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/tipuesearch/img/loader.gif
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/themes/pelican-bootstrap3/static/tipuesearch/img/search.png to /home/travis/build/cmenguy/cmenguy.github.io/output/theme/tipuesearch/img/search.png
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/content/images/avatar.jpg to images/avatar.jpg
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/content/images/banner.jpg to images/banner.jpg
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/content/images/banner_src.jpg to images/banner_src.jpg
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/content/images/crime-clustermap-sf-seattle.png to images/crime-clustermap-sf-seattle.png
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/content/images/crime-density-tiling.png to images/crime-density-tiling.png
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/content/images/crime-geospatial-distribution.png to images/crime-geospatial-distribution.png
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/content/images/crime-temporal-distribution.png to images/crime-temporal-distribution.png
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/content/images/logo.jpg to images/logo.jpg
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/content/images/logo2.jpg to images/logo2.jpg
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/content/images/logo2_black.jpg to images/logo2_black.jpg
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/content/images/logo_black.jpg to images/logo_black.jpg
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/content/extra/robots.txt to robots.txt
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/content/extra/favicon.ico to favicon.ico
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/content/extra/custom.css to static/custom.css
+-> Copying /home/travis/build/cmenguy/cmenguy.github.io/content/extra/CNAME to CNAME
+Done: Processed 2 articles, 0 drafts, 2 pages and 0 hidden pages in 1.56 seconds.
