@@ -123,7 +123,7 @@ Available upon request.
 
 ----
 
-> <charles@gradientdissent.com> • +1 (917) 294-3487 • 28 years old • permanent resident  
+> <charles@gradientdissent.com> • +1 (347) 687-5697 • 28 years old • permanent resident  
 >  350 E 62nd Street, New York - NY 10065, United States  
 > [www.gradientdissent.com](http://gradientdissent.com)
 
