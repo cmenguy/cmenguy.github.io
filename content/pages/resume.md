@@ -7,7 +7,7 @@ Charles Menguy
 
 ----
 
->  Data science engineer with 8+ years of professional experience in the online advertising industry.  
+>  Data science engineer with 10+ years of professional experience in the online advertising industry.  
 >  Fluent in Java, Scala and Python, intermediate in R and C++. Comfortable with Unix/shell scripting.  
 >  Well-versed in big data technologies and applying data science and machine learning at scale in the cloud.
 
@@ -16,21 +16,49 @@ Charles Menguy
 Work Experience
 ---------------
 
-Since 2012
-:   **Senior Data Engineer** for [Adobe](http://www.adobe.com/)
+Since 2017
+:   **Senior Data Science Engineer** for [Adobe](http://www.adobe.com/)
     (New York City, United States).
 
-    • Research and development of a cross-device stitching engine processing hundreds of Terabytes
-    weekly via  *EMR* and  *Spark* using graph-based cluster algorithms, coordination via  *AWS Data Pipeline*.
-    Main development in  *Scala*, analysis and evaluation via *IPython notebooks*.  
-    • Complete backend development of a customer segmentation platform from scratch in  *Java*
-    using  *Hadoop*,  *HBase* and  *Cassandra*, managing more than 10 Billion profiles.
-    This was done by leveraging  *Amazon Web Services* in multiple regions, in particular  *EC2*,  *EMR* and  *SQS*.  
-    • Development of a  *Python*-based *data science platform* to provide analytics on multi-dimensional data coming from
-    different data sources with  *Hive* and  *Redshift* processing dozens of Terabytes daily. 150+ Terabytes stored.  
-    • Participation in the development of an algorithmic segmentation framework based on *Hive* using  *TF-IDF*.  
-    • High-frequency distributed multi-threaded cookie exchange service built in  *Java* with a custom streaming protocol
-    based on  *SQS*, making tens of thousands HTTP requests per second to dozens of ad networks/DSPs/DMPs.  
+    Currently working on bringing AI capabilities to the company's segmentation platform by working closely with
+    product owners and research scientists. Responsibilities include:
+    • Research and development of an automated segmentation system to package audiences into explainable clusters. 
+    Research involves evaluating several *clustering algorithms*, as well as  an exploration platform to refine clusters.
+    • Research and Development of a *contextualization engine* using a *knowledge graph*, to build a more granular 
+    user profile based on the content of the webpages.
+    • Development of a Data Science platform to allow internal and external users to run Data Science experiments 
+    at scale in an integrated end-to-end framework.
+    • Design and development of a *lookalike modeling framework*. Research involves multiple sketches and algorithms 
+    to run at very large scale and in realtime as well as batch.
+
+2015-2017
+:   **Senior Software Engineer** for [Adobe](http://www.adobe.com/)
+    (New York City, United States).
+
+    Lead research and development for a *cross-device identity stitching engine* to be used as a core service across
+    the entire company. Responsibilities included:
+    • Partnering with product owners and prospective customers to determine engineering and research direction.
+    • Research of techniques and algorithms that could work at scale and designed a prototype using a 
+    *graph-based* approach with *Spark* and *Kafka* on top of *Amazon Web Services*.
+    • End-to-end development in *Scala* of the original prototype using *Spark*, *Amazon EMR*, and transmitting data 
+    over *Kafka* encoded using *Protocol Buffers*.
+    • Development of evaluation and reporting framework using Spark and sending data to *OpenTSDB*.
+    • Development of an orchestration layer using *Amazon's Data Pipeline* (now *Glue*)
+    • Scaled the backend to accomodate product growth from zero to hundreds of customers.
+
+2012-2015
+:   **Software Engineer** for [Adobe](http://www.adobe.com/)
+    (New York City, United States).
+
+    • Development of a Python-based data science platform to provide analytics on multidimensional data coming 
+    from different data sources with *Hive* and *Redshift* processing dozens of Terabytes daily. 150+ Terabytes stored.
+    • High-frequency distributed multi-threaded cookie exchange service built inJava with a custom 
+    streaming protocol based on *Amazon SQS*, making tens of thousands HTTP requests per second to 
+    dozens of ad networks/DSPs/DMPs.
+    • Participation in the development of an *algorithmic segmentation* framework based on *Hive* using TF-IDF.
+    • Complete backend development of a customer segmentation platform from scratch in *Java*
+    using *Hadoop*, *HBase* and *Cassandra*, managing more than 10 Billion profiles. This was done
+    by leveraging Amazon Web Services in multiple regions, in particular *EC2*, *EMR* and *SQS*.
 
 2011-2012
 :   **Senior Software Engineer** for [Proclivity Media](https://www.proclivitymedia.com/)
@@ -73,10 +101,6 @@ Java
 :   Author of the [cloudwatch-metrics](https://github.com/cmenguy/cloudwatch-metrics)
     library to collect Hadoop metrics into Amazon CloudWatch.
 
-Misc
-:   My [StackOverflow reputation](http://stackoverflow.com/users/1332690/charles-menguy) 
-    is close to 20k, among the top 2% contributors, and top 5 in the Hadoop community.
-
 Open Data
 :   I like taking open data apart to find something useful, and [blog](http://gradientdissent.com)
     about it.  
@@ -102,19 +126,34 @@ Education
 2005
 :   *High school diploma (SAT equivalent) with highest honors*.
 
-Activities and Interests
-------------------------
+Activities & Interests
+----------------------
+
+Granted Patents
+:   [Techniques for associating variable versions of a cluster of devices identified at different times with the same user by assigning cluster identifiers](https://patents.google.com/patent/US10110435B2)
+    [Generating persistent profile identifiers](https://patents.google.com/patent/US10497023B2)
+    [Automatically generating meaningful user segments](https://patents.google.com/patent/US11023495B2)
+    [Identifying multiple devices belonging to a single user](https://patents.google.com/patent/US10785134B2)
+    [Delivery of contextual interest from interaction information](https://patents.google.com/patent/US10997264B2)
+
+Teaching
+:   Managed university collaboration between [Adobe](https://www.adobe.com/) and [Columbia University](https://www.columbia.edu/) for captsone projects for 1 semester, 
+    including research project proposals, legal reviews for data privacy, student teams accompaniment, coaching and feedback.
+    Teaching assistant at [Coursera](https://www.coursera.org/), helping on various technical courses.
+
+Writing
+:   Active user on [StackOverflow reputation](http://stackoverflow.com/users/1332690/charles-menguy)
+    among the top 1% contributors, and top 5 in the Hadoop community.
+    Technical news editor at [InfoQ](http://www.infoq.com/author/Charles-Menguy) 
+    focusing on the big data and data science topics.
+
+Speaking
+:   Various tech talks, brown bags and internal presentations at large scale events at [Adobe](https://www.adobe.com/)
 
 Hobbies
 :   I like traveling around the world and discovering new cultures and ways of thinking.  
     I enjoy learning more about various topics, using platforms such as [Coursera](https://www.coursera.org/), 
     [Udacity](https://www.udacity.com/me) or [edX](https://www.edx.org/).
-
-Activities
-:   I have been teaching assistant at [Coursera](https://www.coursera.org/user/i/e6c7809cb65307e8057090514dd4367e) 
-    for several computer science and AI-related courses.  
-    Also a technical news editor at [InfoQ](http://www.infoq.com/author/Charles-Menguy) 
-    focusing on the big data and data science topics.
 
 Recommendations
 ---------------
@@ -123,8 +162,7 @@ Available upon request.
 
 ----
 
-> <charles@gradientdissent.com> • +1 (347) 687-5697 • 28 years old • permanent resident  
->  350 E 62nd Street, New York - NY 10065, United States  
-> [www.gradientdissent.com](http://gradientdissent.com)
+> <menguy.charles@gmail.com> • +1 (347) 687-5697 •  US citizen  
+> New York, Brooklyn, United States  
 
 ----
