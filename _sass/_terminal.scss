@@ -1,0 +1,105 @@
+// Terminal window chrome
+.terminal-window {
+  background: var(--bg-light);
+  border: 1px solid var(--gray-dark);
+  border-radius: 6px;
+  margin: 1.5em 0;
+  overflow: hidden;
+
+  .terminal-titlebar {
+    background: var(--bg-lighter);
+    padding: 0.5em 0.75em;
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    border-bottom: 1px solid var(--gray-dark);
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      display: inline-block;
+
+      &.red { background: #ff5f56; }
+      &.yellow { background: #ffbd2e; }
+      &.green { background: #27c93f; }
+    }
+
+    .title {
+      color: var(--gray);
+      font-size: 0.8em;
+      margin-left: 0.5em;
+    }
+  }
+
+  .terminal-body {
+    padding: 1em;
+  }
+}
+
+// Prompt styling
+.prompt {
+  color: var(--green);
+
+  &::before {
+    content: "$ ";
+    color: var(--green-dim);
+  }
+}
+
+// Blinking cursor
+.cursor {
+  display: inline-block;
+  width: 0.6em;
+  height: 1.1em;
+  background: var(--green);
+  vertical-align: text-bottom;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+// Tree-view symbols for categories
+.tree-view {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  .tree-branch {
+    margin: 0.5em 0;
+
+    .tree-label {
+      color: var(--amber);
+      font-weight: 600;
+    }
+  }
+
+  .tree-leaves {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+
+    li {
+      margin: 0.2em 0;
+      padding-left: 1.5em;
+
+      &::before {
+        content: "├── ";
+        color: var(--gray-dark);
+      }
+
+      &:last-child::before {
+        content: "└── ";
+      }
+    }
+  }
+}
+
+// Text glow effect for titles
+.glow {
+  text-shadow: 0 0 10px rgba(0, 255, 0, 0.5),
+               0 0 20px rgba(0, 255, 0, 0.3);
+}

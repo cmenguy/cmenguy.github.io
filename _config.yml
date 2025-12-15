@@ -1,0 +1,40 @@
+title: "cmenguy@terminal:~$"
+description: "AI/ML Engineering Blog — LLMs, ML Systems, and Deep Learning"
+url: "https://cmenguy.github.io"
+baseurl: ""
+author: cmenguy
+
+permalink: /:categories/:year/:month/:day/:title/
+
+markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+  math_engine: null
+
+highlighter: rouge
+future: true
+
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+  - jekyll-sitemap
+
+defaults:
+  - scope:
+      path: ""
+      type: "posts"
+    values:
+      layout: "post"
+      author: "cmenguy"
+  - scope:
+      path: ""
+    values:
+      layout: "page"
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor
+  - node_modules
+  - README.md

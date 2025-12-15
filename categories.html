@@ -1,0 +1,35 @@
+---
+layout: default
+title: Categories
+---
+
+<div class="terminal-window">
+  <div class="terminal-titlebar">
+    <span class="dot red"></span>
+    <span class="dot yellow"></span>
+    <span class="dot green"></span>
+    <span class="title">~/categories</span>
+  </div>
+  <div class="terminal-body">
+    <p class="prompt">tree categories/</p>
+
+    <ul class="tree-view">
+      {% assign sorted_categories = site.categories | sort %}
+      {% for category in sorted_categories %}
+      <li class="tree-branch">
+        <span class="tree-label">{{ category[0] }}</span> ({{ category[1].size }})
+        <ul class="tree-leaves">
+          {% for post in category[1] %}
+          <li>
+            <span style="color: var(--gray); font-size: 0.8em;">{{ post.date | date: "%Y-%m-%d" }}</span>
+            <a href="{{ post.url | relative_url }}">{{ post.title }}</a>
+          </li>
+          {% endfor %}
+        </ul>
+      </li>
+      {% endfor %}
+    </ul>
+
+    <p style="margin-top: 1em;"><span class="prompt"></span><span class="cursor"></span></p>
+  </div>
+</div>

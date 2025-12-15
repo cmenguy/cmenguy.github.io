@@ -1,0 +1,82 @@
+// Rouge syntax highlighting — VS Code inspired on dark background
+.highlight {
+  background: var(--bg-light);
+  border-radius: 4px;
+  margin: 1em 0;
+
+  pre {
+    margin: 0;
+    border-left: 3px solid var(--green-dark);
+  }
+
+  // Line numbers
+  .gl { color: var(--gray-dark); margin-right: 1em; user-select: none; }
+  .lineno { color: var(--gray-dark); padding-right: 1em; user-select: none; }
+
+  // Comments
+  .c, .c1, .cm, .cs, .ch, .cp, .cpf { color: #6a9955; font-style: italic; }
+  // Strings
+  .s, .s1, .s2, .sb, .sc, .sh, .sx, .dl { color: #ce9178; }
+  // String interpolation
+  .si { color: #d7ba7d; }
+  // Keywords
+  .k, .kc, .kd, .kn, .kp, .kr, .kt { color: #569cd6; font-weight: 500; }
+  // Built-in names
+  .nb, .bp { color: #4ec9b0; }
+  // Functions / methods
+  .nf, .fm { color: #dcdcaa; }
+  // Classes / types
+  .nc, .nn { color: #4ec9b0; }
+  // Numbers
+  .mi, .mf, .mh, .mo, .mb, .mx, .il { color: #b5cea8; }
+  // Operators
+  .o, .ow { color: #d4d4d4; }
+  // Variables
+  .n, .na, .nv, .vi, .vm, .vc, .vg { color: #d4d4d4; }
+  // Decorators / annotations
+  .nd { color: #dcdcaa; }
+  // Constants
+  .no { color: #4fc1ff; }
+  // Regex
+  .sr { color: #d16969; }
+  // Errors
+  .err { color: #f44747; background: none; }
+  // Generic
+  .gd { color: #f44747; }
+  .gi { color: #6a9955; }
+  .gh, .gu { color: #569cd6; font-weight: 600; }
+  // Punctuation
+  .p { color: #d4d4d4; }
+  // Text
+  .w { color: #d4d4d4; }
+}
+
+// Code block copy button
+.code-block-wrapper {
+  position: relative;
+
+  .copy-btn {
+    position: absolute;
+    top: 0.5em;
+    right: 0.5em;
+    background: var(--bg-lighter);
+    color: var(--gray);
+    border: 1px solid var(--gray-dark);
+    border-radius: 3px;
+    padding: 0.25em 0.5em;
+    font-family: var(--font-mono);
+    font-size: 0.7em;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s;
+
+    &:hover {
+      color: var(--green);
+      border-color: var(--green-dark);
+    }
+  }
+
+  &:hover .copy-btn {
+    opacity: 1;
+  }
+}

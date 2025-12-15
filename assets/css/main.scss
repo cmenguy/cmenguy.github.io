@@ -1,0 +1,91 @@
+---
+---
+
+@use "base";
+@use "terminal";
+@use "layout";
+@use "syntax";
+
+// Notebook component styles
+.notebook-container {
+  background: var(--bg-light);
+  border: 1px solid var(--gray-dark);
+  border-radius: 6px;
+  padding: 1em;
+  margin: 1em 0;
+
+  .notebook-description {
+    color: var(--gray);
+    font-size: 0.9em;
+    margin-bottom: 0.75em;
+  }
+
+  .notebook-buttons {
+    display: flex;
+    gap: 0.75em;
+    flex-wrap: wrap;
+  }
+
+  .notebook-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    padding: 0.5em 1em;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    text-decoration: none;
+    transition: background 0.2s, color 0.2s;
+
+    svg {
+      flex-shrink: 0;
+    }
+
+    &.colab-btn {
+      background: var(--bg-lighter);
+      color: var(--amber);
+      border: 1px solid var(--amber);
+
+      &:hover {
+        background: var(--amber);
+        color: var(--bg);
+        text-decoration: none;
+      }
+    }
+
+    &.github-btn {
+      background: var(--bg-lighter);
+      color: var(--white);
+      border: 1px solid var(--gray-dark);
+
+      &:hover {
+        background: var(--gray-dark);
+        color: var(--white);
+        text-decoration: none;
+      }
+    }
+  }
+
+  .notebook-embed {
+    margin-top: 1em;
+    border: 1px solid var(--gray-dark);
+    border-radius: 4px;
+    overflow: hidden;
+
+    iframe {
+      display: block;
+    }
+  }
+}
+
+// KaTeX overrides for terminal theme
+.katex {
+  font-size: 1.1em;
+  color: var(--white);
+}
+
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5em 0;
+}
