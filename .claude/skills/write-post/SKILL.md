@@ -57,13 +57,34 @@ notebook_description: "One-line description of what the notebook does."
 
 ### Content Organization
 
-1. **Opening** (2-3 sentences) — what the post covers and why it matters. No preamble.
-2. **Motivation/Context** — the "why" behind the topic. What problem are we solving? What's broken about the current approach?
+1. **Personal Opening** (1-2 paragraphs) — ground the post in a real, personal story. What prompted Charles to explore this topic? What was happening at work or in life that made this relevant? This is not filler — it's context that makes technical writing human and relatable. See "Personal Opening Style" below for details.
+2. **Motivation/Context** — the "why" behind the topic. What problem are we solving? What's broken about the current approach? If relevant, include a "why not the simpler approach?" section (e.g., "Why Not Just Context Engineering?") with a concrete example showing where the easy path falls short.
 3. **Technical Sections** — the meat. Code, math, architecture, implementation details. Split into logical chunks with descriptive H2 headers.
 4. **Results/Takeaways** — what we learned, benchmarks, practical advice.
 5. **Closing** (1-2 sentences) — what's next, or a forward-looking thought. No "In conclusion, we have demonstrated..."
 
 Use `##` for main sections and `###` for subsections. Headers should be descriptive: "Why KV Cache Matters" not "Background".
+
+### Personal Opening Style
+
+Every post should start with a short personal narrative that explains *how* Charles came to explore the topic. This grounds the technical content in real experience and makes it feel like a conversation, not a textbook. The reader should feel like they're hearing a story from a colleague.
+
+**What to include:**
+- What was happening at work — a problem that came up, a question from a teammate, a prototype that sparked curiosity
+- What was happening in life that gave him time or headspace to dig in — travel, holidays, quiet weekends, a long flight
+- A sense of place and moment — specific enough to feel real, not so detailed it becomes a travel blog
+
+**What this sounds like:**
+- "I've been spending a lot of time with Llama models at work lately... A few weeks ago, someone on the marketing team asked if we could get the model to write copy that sounds less like a robot and more like *us*."
+- "Then December hit and things started winding down at work. I flew out to France to spend the holidays with my parents, and somewhere between the jet lag and my mom's cooking, I found myself with actual uninterrupted thinking time."
+- "I'd been staring at this latency problem for two weeks straight. The flight to Tokyo for a conference gave me six hours with no Wi-Fi and a fresh perspective."
+
+**What this does NOT sound like:**
+- "In this blog post, we will explore..." (no academic preamble)
+- "Fine-tuning is a critical technique in modern NLP..." (no generic intros)
+- A three-paragraph autobiography — keep it tight, 1-2 paragraphs max, then transition naturally into the technical content
+
+**Ask the user** if they don't provide personal context. The story should come from them — ask what prompted them to explore the topic, whether anything specific was happening at work or in their life around that time. Don't invent personal details.
 
 ## Code-First Writing
 
@@ -169,7 +190,7 @@ Update the post's front matter with the notebook paths.
 
 - [ ] Front matter is complete with all required fields
 - [ ] Filename follows `YYYY-MM-DD-slug.md` format
-- [ ] Opening hooks the reader in 2-3 sentences
+- [ ] Opening has a personal narrative grounding the topic (asked user for context if not provided)
 - [ ] Sections are logically organized with descriptive headers
 - [ ] Code blocks are bite-sized and each one is explained
 - [ ] All code has been executed and verified to work
