@@ -5,7 +5,7 @@ date: 2025-12-22 10:00:00 -0800
 categories: [llm, fine-tuning]
 tags: [sft, dpo, rlhf, trl, marketing, preference-learning]
 author: cmenguy
-colab_url: "https://colab.research.google.com/github/cmenguy/notebooks/blob/main/2025-12-22-fine-tuning-llms-sft-dpo-rlhf.ipynb"
+colab_url: "https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/2025-12-22-fine-tuning-llms-sft-dpo-rlhf.ipynb"
 colab_embed: false
 github_notebook: "https://github.com/cmenguy/cmenguy.github.io/blob/main/notebooks/2025-12-22-fine-tuning-llms-sft-dpo-rlhf.ipynb"
 notebook_description: "End-to-end code for SFT, DPO, and RLHF fine-tuning with synthetic marketing data."
