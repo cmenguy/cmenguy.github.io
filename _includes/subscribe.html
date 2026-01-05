@@ -1,0 +1,14 @@
+{% if site.buttondown_username %}
+<div class="subscribe-box">
+  <p class="subscribe-tagline">If this was useful, subscribe. No spam. Just signal.</p>
+  <form
+    action="https://buttondown.com/api/emails/embed-subscribe/{{ site.buttondown_username }}"
+    method="post"
+    target="popupwindow"
+    class="subscribe-form"
+  >
+    <input type="email" name="email" placeholder="you@example.com" required />
+    <input type="submit" value="Subscribe" />
+  </form>
+</div>
+{% endif %}

@@ -6,6 +6,9 @@
       <a href="{{ '/categories' | relative_url }}">Categories</a>
       <a href="{{ '/about' | relative_url }}">About</a>
       <a href="{{ '/feed.xml' | relative_url }}" title="RSS Feed">RSS</a>
+      {% if site.buttondown_username %}
+      <a href="https://buttondown.com/{{ site.buttondown_username }}" title="Zero-noise newsletter">Newsletter</a>
+      {% endif %}
     </nav>
   </div>
 </header>

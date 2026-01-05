@@ -32,6 +32,8 @@ defaults:
     values:
       layout: "page"
 
+buttondown_username: cmenguy
+
 exclude:
   - Gemfile
   - Gemfile.lock
