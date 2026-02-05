@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "LoRA From the Ground Up — The Math, the Matrices, and the Merge"
+title: "LoRA From the Ground Up: The Math, the Matrices, and the Merge"
 date: 2025-12-28 10:00:00 -0800
 categories: [llm, fine-tuning]
 tags: [lora, peft, fine-tuning, low-rank, linear-algebra, merging]
@@ -8,26 +8,26 @@ author: cmenguy
 colab_url: "https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/2025-12-28-lora-deep-dive.ipynb"
 colab_embed: false
 github_notebook: "https://github.com/cmenguy/cmenguy.github.io/blob/main/notebooks/2025-12-28-lora-deep-dive.ipynb"
-notebook_description: "Hands-on LoRA implementation from scratch — building, training, merging, and inspecting low-rank adapters with PyTorch."
+notebook_description: "Hands-on LoRA implementation from scratch: building, training, merging, and inspecting low-rank adapters with PyTorch."
 ---
 
-In my [last post](/llm/fine-tuning/2025/12/22/fine-tuning-llms-sft-dpo-rlhf/), I walked through SFT, DPO, and RLHF for fine-tuning LLMs. Throughout that entire post, LoRA kept showing up — in every code example, every training config, every `LoraConfig(r=16, lora_alpha=32)` call. I used it the way most of us do: copy the config from a tutorial, set `r=16` because that's what everyone uses, set `lora_alpha` to double the rank because... reasons, and move on. The model trains, the loss goes down, the outputs improve. Ship it.
+In my [last post](/llm/fine-tuning/2025/12/22/fine-tuning-llms-sft-dpo-rlhf/), I walked through SFT, DPO, and RLHF for fine-tuning LLMs. Throughout that entire post, LoRA kept showing up in every code example, every training config, every `LoraConfig(r=16, lora_alpha=32)` call. I used it the way most of us do: copy the config from a tutorial, set `r=16` because that's what everyone uses, set `lora_alpha` to double the rank because... reasons, and move on. The model trains, the loss goes down, the outputs improve. Ship it.
 
-But a few days ago I got into a discussion with a colleague about fine-tuning efficiency — how much memory we were actually saving with LoRA, whether we could push the rank lower without hurting quality, whether it even mattered which layers we targeted. I had opinions on all of this, but when I tried to back them up with anything beyond "it worked last time," I realized I was hand-waving. I knew *what* LoRA did at a high level — low-rank matrices, fewer parameters, memory efficient — but I couldn't actually explain *why* those specific numbers mattered. What does rank even mean in this context? Why does `lora_alpha` scale the way it does? What's actually happening to the weight matrices during training? I'd been treating LoRA like a black box with good defaults, and that bothered me.
+But a few days ago I got into a discussion with a colleague about fine-tuning efficiency: how much memory we were actually saving with LoRA, whether we could push the rank lower without hurting quality, whether it even mattered which layers we targeted. I had opinions on all of this, but when I tried to back them up with anything beyond "it worked last time," I realized I was hand-waving. I knew *what* LoRA did at a high level (low-rank matrices, fewer parameters, memory efficient), but I couldn't actually explain *why* those specific numbers mattered. What does rank even mean in this context? Why does `lora_alpha` scale the way it does? What's actually happening to the weight matrices during training? I'd been treating LoRA like a black box with good defaults, and that bothered me.
 
 So I blocked out a weekend, pulled up the [original paper](https://arxiv.org/abs/2106.09685), and went through the math line by line. What follows is what I wish someone had explained to me before I started using LoRA in production.
 
 ## The Problem LoRA Solves
 
-Let's start with why LoRA exists. A model like Llama 3.1 8B has roughly 8 billion parameters. Full fine-tuning means updating all of them — every weight in every layer gets a gradient, an optimizer state, and a momentum term. For Adam, that's 3x the model size in memory just for the optimizer. On a Llama 8B in float32, that's:
+Let's start with why LoRA exists. A model like Llama 3.1 8B has roughly 8 billion parameters. Full fine-tuning means updating all of them: every weight in every layer gets a gradient, an optimizer state, and a momentum term. For Adam, that's 3x the model size in memory just for the optimizer. On a Llama 8B in float32, that's:
 
 $$\text{Memory}_{\text{full}} = 8\text{B} \times 4\text{ bytes} \times 3 = 96\text{ GB (optimizer alone)}$$
 
 Add the model weights, gradients, and activations, and you're looking at needing multiple A100 80GB GPUs just for fine-tuning. For most teams, that's impractical.
 
-LoRA's insight: when you fine-tune a large model on a specific task, the weight updates don't use the full dimensionality of the weight matrices. The *change* in weights during fine-tuning is low-rank — it lies in a much smaller subspace than the original weights. So instead of updating a giant matrix, you can decompose the update into two small matrices and only train those.
+LoRA's insight: when you fine-tune a large model on a specific task, the weight updates don't use the full dimensionality of the weight matrices. The *change* in weights during fine-tuning is low-rank. It lies in a much smaller subspace than the original weights. So instead of updating a giant matrix, you can decompose the update into two small matrices and only train those.
 
-## The Core Idea — Low-Rank Decomposition
+## The Core Idea: Low-Rank Decomposition
 
 Here's the key equation. For a pretrained weight matrix $W_0 \in \mathbb{R}^{d \times k}$, LoRA constrains the update $\Delta W$ to be a low-rank decomposition:
 
@@ -62,7 +62,7 @@ Total full: 16,777,216             Total LoRA: 65,536 (0.4%)
 
 With $r = 8$, you're training 65,536 parameters instead of 16.7 million — a **256x reduction** for this single layer. Across the entire model, LoRA typically trains 0.1-1% of the total parameters.
 
-## The Forward Pass — How It Actually Computes
+## The Forward Pass: How It Actually Computes
 
 During a forward pass, the original weight and the LoRA update combine like this. For an input $x$:
 
@@ -88,7 +88,7 @@ Input x ─────────────────┬──────
                       Output h
 ```
 
-The pretrained weights $W_0$ stay **completely frozen** — no gradients, no optimizer states, no memory overhead. Only $B$ and $A$ receive gradients. This is why LoRA is so memory-efficient: you only store optimizer states for the tiny adapter matrices, not the full model.
+The pretrained weights $W_0$ stay **completely frozen**: no gradients, no optimizer states, no memory overhead. Only $B$ and $A$ receive gradients. This is why LoRA is so memory-efficient: you only store optimizer states for the tiny adapter matrices, not the full model.
 
 Let's implement this from scratch in PyTorch so you can see exactly what's happening:
 
@@ -108,7 +108,7 @@ class LoRALinear(nn.Module):
         self.scaling = lora_alpha / r
 ```
 
-A few things to notice here. The original layer is frozen — `requires_grad = False`. And there's a `scaling` factor that we'll come back to shortly. Now the adapter matrices:
+A few things to notice here. The original layer is frozen (`requires_grad = False`). And there's a `scaling` factor that we'll come back to shortly. Now the adapter matrices:
 
 ```python
         # A is initialized with Kaiming uniform (like the paper)
@@ -132,7 +132,7 @@ The forward pass puts it all together:
         return base_output + lora_output
 ```
 
-Two separate matrix multiplications through the bottleneck — $x \cdot A^T$ compresses to rank $r$, then $\cdot B^T$ projects back up — plus the scaling factor. Let's see the parameter savings in action:
+Two separate matrix multiplications through the bottleneck: $x \cdot A^T$ compresses to rank $r$, then $\cdot B^T$ projects back up, plus the scaling factor. Let's see the parameter savings in action:
 
 ```python
 d, k, r = 4096, 4096, 8
@@ -157,7 +157,7 @@ In linear algebra, the rank of a matrix is the number of linearly independent ro
 
 When we constrain $\Delta W = BA$ with $B \in \mathbb{R}^{d \times r}$ and $A \in \mathbb{R}^{r \times k}$, the product $BA$ has rank at most $r$. This means the weight update can only modify the model's behavior along $r$ independent directions in the weight space.
 
-The original LoRA paper found something surprising: even $r = 1$ or $r = 2$ works reasonably well for many tasks. The weight updates during fine-tuning really are low-rank. Here's an intuition for why: when you fine-tune on a specific task (like marketing copy), you're not rewiring the model's entire understanding of language. You're making a targeted adjustment — "write in this style" or "prefer these patterns." That adjustment occupies a small subspace of what the model's weights can represent.
+The original LoRA paper found something surprising: even $r = 1$ or $r = 2$ works reasonably well for many tasks. The weight updates during fine-tuning really are low-rank. Here's an intuition for why: when you fine-tune on a specific task (like marketing copy), you're not rewiring the model's entire understanding of language. You're making a targeted adjustment: "write in this style" or "prefer these patterns." That adjustment occupies a small subspace of what the model's weights can represent.
 
 Here's a practical way to see this. Let's create a weight update, compute its singular values, and see how the energy concentrates:
 
@@ -188,7 +188,7 @@ r= 32: 3.00% of energy captured
 r= 64: 5.85% of energy captured
 ```
 
-A random matrix spreads its energy uniformly across all singular values — that's why even $r = 64$ only captures ~2%. But real fine-tuning updates aren't random. They concentrate on a few directions that matter for the task. In practice, $r = 8$ or $r = 16$ captures the meaningful signal while ignoring noise.
+A random matrix spreads its energy uniformly across all singular values, which is why even $r = 64$ only captures ~2%. But real fine-tuning updates aren't random. They concentrate on a few directions that matter for the task. In practice, $r = 8$ or $r = 16$ captures the meaningful signal while ignoring noise.
 
 ### Choosing Rank in Practice
 
@@ -202,7 +202,7 @@ A random matrix spreads its energy uniformly across all singular values — that
 
 The sweet spot for most tasks is $r \in [8, 16]$. Going higher adds parameters without proportional improvement. Going lower risks underfitting complex tasks.
 
-## The Scaling Factor — Why lora_alpha Exists
+## The Scaling Factor: Why lora_alpha Exists
 
 If you've ever stared at `lora_alpha=32` in a config and wondered what it does, here's the answer. The LoRA forward pass applies a scaling factor:
 
@@ -221,7 +221,7 @@ Here's the practical implication. When `lora_alpha = 2 * r` (the common conventi
 # Config C: r=8,  alpha=8  → scaling = 8/8   = 1.0  (no amplification)
 ```
 
-You can think of `lora_alpha` as a "volume knob" for the LoRA update. Higher alpha amplifies the adapter's effect. The convention of `alpha = 2 * r` works well in practice, but you can tune it — especially if you notice training instability (lower alpha) or the model not learning fast enough (higher alpha).
+You can think of `lora_alpha` as a "volume knob" for the LoRA update. Higher alpha amplifies the adapter's effect. The convention of `alpha = 2 * r` works well in practice, but you can tune it, especially if you notice training instability (lower alpha) or the model not learning fast enough (higher alpha).
 
 Let's see this in action:
 
@@ -247,7 +247,7 @@ alpha=16, scaling=2.0, output norm=0.1002
 alpha=32, scaling=4.0, output norm=0.2003
 ```
 
-Linear relationship — double the alpha, double the output magnitude. The learning rate and scaling factor interact, which is why the convention of fixing `alpha = 2r` and tuning only the learning rate is the pragmatic approach.
+Linear relationship: double the alpha, double the output magnitude. The learning rate and scaling factor interact, which is why the convention of fixing `alpha = 2r` and tuning only the learning rate is the pragmatic approach.
 
 ## Which Layers Get LoRA?
 
@@ -433,9 +433,9 @@ print(f"ΔW shape: {delta_W.shape}")
 print(f"ΔW rank: ≤ {lora_config.r} (by construction)")
 ```
 
-$B$ is no longer zero — training has learned a low-rank update. The model's behavior has shifted, but only along 8 independent directions in the weight space.
+$B$ is no longer zero. Training has learned a low-rank update. The model's behavior has shifted, but only along 8 independent directions in the weight space.
 
-## Merging — Collapsing the Adapter Into the Model
+## Merging: Collapsing the Adapter Into the Model
 
 This is where things get practically interesting. You've trained your LoRA adapter. Now what? You have two options: keep the adapter separate, or merge it into the base model. The choice has real implications for serving.
 
@@ -445,7 +445,7 @@ Merging is just matrix addition. You take the pretrained weight $W_0$ and perman
 
 $$W_{\text{merged}} = W_0 + \frac{\alpha}{r} \cdot BA$$
 
-After merging, the model is a regular model again — no adapter, no separate matrices, no extra computation at inference time.
+After merging, the model is a regular model again: no adapter, no separate matrices, no extra computation at inference time.
 
 ```
 Before merge (inference):           After merge (inference):
@@ -467,7 +467,7 @@ from peft import PeftModel
 merged_model = model.merge_and_unload()
 
 # The merged model is a standard transformers model now
-# No LoRA layers, no adapters — just modified weights
+# No LoRA layers, no adapters: just modified weights
 merged_model.save_pretrained("./merged-model")
 ```
 
@@ -499,7 +499,7 @@ Just matrix addition with scaling. Nothing mysterious.
 
 ### What Happens If You Don't Merge
 
-If you skip the merge, the LoRA adapter stays separate from the base model. This isn't just an academic distinction — it affects both performance and flexibility.
+If you skip the merge, the LoRA adapter stays separate from the base model. This isn't just an academic distinction; it affects both performance and flexibility.
 
 **Inference overhead.** Without merging, every forward pass computes two paths: the base model path and the LoRA path. For a single request, the overhead is small. But at scale, those extra matrix multiplications add up:
 
@@ -539,7 +539,7 @@ print(f"Overhead: {(t_unmerged/t_merged - 1)*100:.1f}%")
 
 The exact overhead depends on hardware, but expect 5-15% extra latency on the forward pass. Not catastrophic, but not free.
 
-**Multi-adapter serving.** Here's the flip side — not merging is actually a *feature* when you need to serve multiple adapters. If you have one base model and 50 brand-specific LoRA adapters (like the marketing scenario from the previous post), you can:
+**Multi-adapter serving.** Here's the flip side: not merging is actually a *feature* when you need to serve multiple adapters. If you have one base model and 50 brand-specific LoRA adapters (like the marketing scenario from the previous post), you can:
 
 ```python
 from peft import PeftModel
@@ -555,7 +555,7 @@ base_model = AutoModelForCausalLM.from_pretrained(
 model = PeftModel.from_pretrained(base_model, "./adapter-brand-A")
 output_A = model.generate(...)
 
-# Switch to a different adapter — near instant
+# Switch to a different adapter (near instant)
 model.load_adapter("./adapter-brand-B", adapter_name="brand_b")
 model.set_adapter("brand_b")
 output_B = model.generate(...)
@@ -628,7 +628,7 @@ print(f"ΔW norm:      {delta_W_scaled.norm():.2f}")
 print(f"W_merged norm: {W_merged.norm():.2f}")
 ```
 
-The merged weight is a regular matrix. No special structure, no adapter overhead. But you lose the ability to "un-merge" — the adapter's contribution is baked into the weights permanently.
+The merged weight is a regular matrix. No special structure, no adapter overhead. But you lose the ability to "un-merge"; the adapter's contribution is baked into the weights permanently.
 
 ## Practical Tips From Production
 
@@ -636,11 +636,11 @@ A few things I've learned the hard way that the paper doesn't tell you:
 
 **Start with r=8 and alpha=16.** This is a good default for 7B-13B parameter models on most tasks. Only increase rank if you see clear signs of underfitting (training loss not decreasing fast enough despite reasonable learning rate).
 
-**Learning rate matters more than rank.** The learning rate for LoRA should typically be 5-10x higher than what you'd use for full fine-tuning. This is because you're only updating a small subset of parameters — they need to move more per step to have the same overall effect. Start with `2e-4` and adjust from there.
+**Learning rate matters more than rank.** The learning rate for LoRA should typically be 5-10x higher than what you'd use for full fine-tuning. This is because you're only updating a small subset of parameters, so they need to move more per step to have the same overall effect. Start with `2e-4` and adjust from there.
 
 **Dropout is your friend for small datasets.** `lora_dropout=0.05` is the default, but if you're training on fewer than 1000 examples, bump it to `0.1`. The low-rank bottleneck is already a form of regularization, but it's not always enough.
 
-**Save adapters, not merged models** — at least during development. A LoRA adapter for a 7B model is ~10-50 MB. A merged model is ~14 GB. When you're running dozens of experiments, that storage difference matters.
+**Save adapters, not merged models**, at least during development. A LoRA adapter for a 7B model is ~10-50 MB. A merged model is ~14 GB. When you're running dozens of experiments, that storage difference matters.
 
 **Double-check your target modules.** Different model families have different linear layer names. Llama uses `q_proj`, `k_proj`, `v_proj`, `o_proj`. Other models might use `query`, `key`, `value`, or `qkv_proj`. Check with:
 
@@ -657,6 +657,6 @@ for name, module in model.named_modules():
 
 ## Wrapping Up
 
-LoRA's elegance is in how simple it actually is once you see the math. Freeze the pretrained weights, learn a low-rank update decomposed into two small matrices, and add it to the forward pass with a scaling factor. That's the whole algorithm. The rest is engineering — choosing which layers to target, setting the rank and scaling, deciding whether to merge for serving or keep adapters separate for flexibility.
+LoRA's elegance is in how simple it actually is once you see the math. Freeze the pretrained weights, learn a low-rank update decomposed into two small matrices, and add it to the forward pass with a scaling factor. That's the whole algorithm. The rest is engineering: choosing which layers to target, setting the rank and scaling, deciding whether to merge for serving or keep adapters separate for flexibility.
 
 The next time you write `LoraConfig(r=16, lora_alpha=32)`, you'll know exactly what those numbers mean and why they matter. And when someone on your team asks "can we make r bigger?" you'll be able to explain not just *whether* to do it, but *what* it actually changes in the weight space.

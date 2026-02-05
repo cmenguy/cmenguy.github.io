@@ -11,9 +11,9 @@ github_notebook: "https://github.com/cmenguy/cmenguy.github.io/blob/main/noteboo
 notebook_description: "Interactive examples of A2A agent cards, MCP tool definitions, and multi-agent communication patterns."
 ---
 
-I've been building agents at work for the past few months. Not the "wrap an LLM in a while loop and call it an agent" kind — actual multi-step systems that read data, call APIs, make decisions, and hand off work to other systems. The kind where you wake up on a Monday and realize you now have six different services that need to talk to each other, and none of them agree on what a "task" is.
+I've been building agents at work for the past few months. Not the "wrap an LLM in a while loop and call it an agent" kind, but actual multi-step systems that read data, call APIs, make decisions, and hand off work to other systems. The kind where you wake up on a Monday and realize you now have six different services that need to talk to each other, and none of them agree on what a "task" is.
 
-It started innocuously enough. We had one agent handling a customer-facing workflow, and it needed to call out to a specialized retrieval system. Easy — just make an API call, right? Then another team built their own agent for a different use case, and suddenly someone in a design review is asking "can your agent talk to their agent?" and the room goes quiet because nobody has a good answer. By December I had a whiteboard full of arrows and a growing conviction that we were reinventing the wheel badly.
+It started innocuously enough. We had one agent handling a customer-facing workflow, and it needed to call out to a specialized retrieval system. Easy: just make an API call, right? Then another team built their own agent for a different use case, and suddenly someone in a design review is asking "can your agent talk to their agent?" and the room goes quiet because nobody has a good answer. By December I had a whiteboard full of arrows and a growing conviction that we were reinventing the wheel badly.
 
 ## Why Not Just Wing It?
 
@@ -34,17 +34,17 @@ async def delegate_research(query: str) -> dict:
 
 This works for request-response. But what happens when the research takes 45 seconds? Or 5 minutes? Now you need timeouts, polling, maybe webhooks. What happens when you want to swap out the retrieval agent for a different one? Now you need discovery. What about auth? What about streaming partial results back so the user isn't staring at a spinner? Each of these is a custom integration, and you end up writing more glue code than actual agent logic.
 
-That's the problem protocols solve. Not because they're elegant — they're not, they're specifications with committee fingerprints all over them — but because they let you stop reinventing the boring parts.
+That's the problem protocols solve. Not because they're elegant (they're not, they're specifications with committee fingerprints all over them), but because they let you stop reinventing the boring parts.
 
 ## The Two Protocols That Matter
 
-As of early 2026, two protocols have emerged with real traction: **MCP** (Model Context Protocol, from Anthropic) and **A2A** (Agent-to-Agent, originally from Google, now under the Linux Foundation). There are others — OpenAI's function calling pattern, the Agent Protocol from AGI Inc., LangChain's various abstractions — but MCP and A2A are the ones I see actually getting adopted in production systems.
+As of early 2026, two protocols have emerged with real traction: **MCP** (Model Context Protocol, from Anthropic) and **A2A** (Agent-to-Agent, originally from Google, now under the Linux Foundation). There are others (OpenAI's function calling pattern, the Agent Protocol from AGI Inc., LangChain's various abstractions), but MCP and A2A are the ones I see actually getting adopted in production systems.
 
 They solve fundamentally different problems, and understanding that distinction is the whole game.
 
-**MCP** is about giving a single AI application access to tools and data. Think of it as a USB-C port for your LLM — you plug in servers that provide capabilities (read a database, call an API, search files), and the AI host uses them. The architecture is a star: one host at the center, many servers around it.
+**MCP** is about giving a single AI application access to tools and data. Think of it as a USB-C port for your LLM: you plug in servers that provide capabilities (read a database, call an API, search files), and the AI host uses them. The architecture is a star: one host at the center, many servers around it.
 
-**A2A** is about agents talking to other agents as peers. Think of it as a phone system for autonomous services — each agent advertises what it can do, and other agents can discover and delegate work to it. The architecture is a mesh: any agent can talk to any other.
+**A2A** is about agents talking to other agents as peers. Think of it as a phone system for autonomous services: each agent advertises what it can do, and other agents can discover and delegate work to it. The architecture is a mesh: any agent can talk to any other.
 
 ```
 MCP: Star Topology              A2A: Mesh Topology
@@ -57,16 +57,16 @@ Server Server Server
 (DB)  (API)  (Files)
 ```
 
-They're not competing — they're complementary layers. An A2A agent might internally use MCP to access tools. Let me break each one down.
+They're not competing. They're complementary layers. An A2A agent might internally use MCP to access tools. Let me break each one down.
 
-## MCP — The Context Layer
+## MCP: The Context Layer
 
-MCP's mental model is simple: an AI application (the "host") connects to multiple MCP servers, each of which provides some combination of three primitives — **tools**, **resources**, and **prompts**.
+MCP's mental model is simple: an AI application (the "host") connects to multiple MCP servers, each of which provides some combination of three primitives: **tools**, **resources**, and **prompts**.
 
 **Tools** are functions the model can call. A weather tool, a database query tool, a code execution tool. The model decides when to use them.
 
 ```python
-# An MCP tool definition — this is what the server advertises
+# An MCP tool definition: this is what the server advertises
 weather_tool = {
     "name": "get_weather",
     "description": "Get current weather for a location",
@@ -83,10 +83,10 @@ weather_tool = {
 }
 ```
 
-**Resources** are data the application can pull in for context — files, database records, API responses. Unlike tools, resources are typically application-driven (the UI exposes them for selection) rather than model-driven.
+**Resources** are data the application can pull in for context: files, database records, API responses. Unlike tools, resources are typically application-driven (the UI exposes them for selection) rather than model-driven.
 
 ```python
-# An MCP resource — data the AI can access
+# An MCP resource: data the AI can access
 resource = {
     "uri": "file:///project/src/main.py",
     "name": "main.py",
@@ -98,9 +98,9 @@ resource = {
 }
 ```
 
-**Prompts** are reusable templates — think slash commands. The user explicitly selects them.
+**Prompts** are reusable templates: think slash commands. The user explicitly selects them.
 
-The transport layer is either **stdio** (for local servers — your MCP server runs as a subprocess and communicates over stdin/stdout) or **Streamable HTTP** (for remote servers — uses HTTP POST for requests and Server-Sent Events for streaming responses).
+The transport layer is either **stdio** (for local servers where your MCP server runs as a subprocess and communicates over stdin/stdout) or **Streamable HTTP** (for remote servers that use HTTP POST for requests and Server-Sent Events for streaming responses).
 
 Here's what a minimal MCP server looks like in practice:
 
@@ -138,15 +138,15 @@ async def call_tool(name: str, arguments: dict):
 
 The key thing about MCP: **it's not agent-to-agent communication**. It's one AI application accessing capabilities. The AI host is the brain; the MCP servers are the hands. There's a clear hierarchy. The host decides what to do, the servers execute.
 
-This works phenomenally well for the single-agent case. Claude Code connecting to your filesystem, your database, your Jira instance — that's MCP's sweet spot. The protocol handles discovery (servers advertise their tools via `tools/list`), capability negotiation (during initialization, client and server agree on what each supports), and tool execution (the model calls a tool, the result comes back).
+This works phenomenally well for the single-agent case. Claude Code connecting to your filesystem, your database, your Jira instance: that's MCP's sweet spot. The protocol handles discovery (servers advertise their tools via `tools/list`), capability negotiation (during initialization, client and server agree on what each supports), and tool execution (the model calls a tool, the result comes back).
 
-Where MCP falls short is when you need two autonomous systems to collaborate. MCP servers don't have agency — they don't make decisions, they don't hold state across interactions in a meaningful way, they don't negotiate with the host about *how* to accomplish something. They're tools, not peers.
+Where MCP falls short is when you need two autonomous systems to collaborate. MCP servers don't have agency. They don't make decisions, they don't hold state across interactions in a meaningful way, they don't negotiate with the host about *how* to accomplish something. They're tools, not peers.
 
-## A2A — The Agent Coordination Layer
+## A2A: The Agent Coordination Layer
 
 A2A starts from a different premise: agents are autonomous entities that need to discover each other, negotiate capabilities, delegate tasks, and coordinate on long-running work.
 
-The foundational concept is the **Agent Card** — a JSON document that describes what an agent can do. Think of it as a résumé that other agents can read programmatically.
+The foundational concept is the **Agent Card**: a JSON document that describes what an agent can do. Think of it as a résumé that other agents can read programmatically.
 
 ```json
 {
@@ -190,11 +190,11 @@ The foundational concept is the **Agent Card** — a JSON document that describe
 }
 ```
 
-This is more than a tool definition — it's an agent's identity. The `skills` field tells other agents what tasks this agent can handle, with human-readable examples. The `capabilities` field advertises protocol features (can it stream? does it support push notifications?). The `securitySchemes` field tells clients how to authenticate.
+This is more than a tool definition: it's an agent's identity. The `skills` field tells other agents what tasks this agent can handle, with human-readable examples. The `capabilities` field advertises protocol features (can it stream? does it support push notifications?). The `securitySchemes` field tells clients how to authenticate.
 
 ### Agent Discovery
 
-In a complex ecosystem with dozens of agents, discovery matters. Agent Cards are typically hosted at a well-known URL (like `/.well-known/agent.json`), and client agents can fetch them to understand what's available. In enterprise settings, you might have an agent registry — a directory service that indexes Agent Cards across your organization.
+In a complex ecosystem with dozens of agents, discovery matters. Agent Cards are typically hosted at a well-known URL (like `/.well-known/agent.json`), and client agents can fetch them to understand what's available. In enterprise settings, you might have an agent registry: a directory service that indexes Agent Cards across your organization.
 
 ```python
 import httpx
@@ -267,7 +267,7 @@ params = MessageSendParams(
 # Response comes back immediately with the answer
 ```
 
-**Streaming (Server-Sent Events):** For tasks with incremental output, use `SendStreamingMessage`. You get a stream of events — `TaskStatusUpdateEvent` for state changes, `TaskArtifactUpdateEvent` for partial results.
+**Streaming (Server-Sent Events):** For tasks with incremental output, use `SendStreamingMessage`. You get a stream of events: `TaskStatusUpdateEvent` for state changes, `TaskArtifactUpdateEvent` for partial results.
 
 ```python
 # Streaming — receive incremental updates
@@ -305,7 +305,7 @@ await client.create_task_push_notification_config({
 })
 ```
 
-This three-tier approach is what makes A2A practical for production systems. A simple lookup agent responds in milliseconds (synchronous). A summarization agent streams tokens as it generates (streaming). A data pipeline agent takes 20 minutes and pushes a notification when it's done (async + webhooks).
+This three-tier approach is what makes A2A practical for production systems. A simple lookup agent responds in milliseconds (synchronous). A summarization agent streams tokens as it generates (streaming). A data pipeline agent takes 20 minutes and pushes a notification when it's done (async with webhooks).
 
 ### Extensions
 
@@ -354,7 +354,7 @@ request = {
 }
 ```
 
-The protobuf definitions are the normative source of truth, with JSON Schema auto-generated for broader compatibility. In practice, most teams I've talked to are using the JSON-RPC binding — it's the path of least resistance.
+The protobuf definitions are the normative source of truth, with JSON Schema auto-generated for broader compatibility. In practice, most teams I've talked to are using the JSON-RPC binding: it's the path of least resistance.
 
 ## The Comparison Matrix
 
@@ -364,7 +364,7 @@ Here's my honest breakdown of when to reach for which:
 |-----------|-----|-----|
 | **Mental model** | "Give my AI app access to tools" | "Let my agents collaborate" |
 | **Architecture** | Star (one host, many servers) | Mesh (peer-to-peer agents) |
-| **Autonomy** | Servers are passive — host decides | Agents are autonomous — they negotiate |
+| **Autonomy** | Servers are passive: host decides | Agents are autonomous: they negotiate |
 | **Discovery** | Capability negotiation at init | Agent Cards with skills + metadata |
 | **Task duration** | Request-response (mostly) | Short, streaming, or long-running |
 | **State management** | Mostly stateless | Rich task lifecycle with states |
@@ -372,9 +372,9 @@ Here's my honest breakdown of when to reach for which:
 | **Best for** | Single AI app + many capabilities | Multi-agent ecosystems |
 | **Maturity** | Widely adopted (Claude, VS Code, etc.) | Growing (Linux Foundation backing) |
 
-**Use MCP when** you're building one AI application that needs to access external tools and data. If you're building a coding assistant that needs filesystem access, database queries, and API calls — MCP.
+**Use MCP when** you're building one AI application that needs to access external tools and data. If you're building a coding assistant that needs filesystem access, database queries, and API calls: MCP.
 
-**Use A2A when** you have multiple autonomous agents that need to discover each other and coordinate work. If you're building a system where a planning agent delegates to a research agent, which delegates to a data agent — A2A.
+**Use A2A when** you have multiple autonomous agents that need to discover each other and coordinate work. If you're building a system where a planning agent delegates to a research agent, which delegates to a data agent: A2A.
 
 **Use both when** your agents need to coordinate with each other *and* each agent needs access to tools. The A2A agent uses A2A to talk to peer agents and MCP to access its own tools.
 
@@ -396,13 +396,13 @@ Here's my honest breakdown of when to reach for which:
 └─────────────────────────────────────────┘
 ```
 
-## The Honest Take — Complexity vs Speed
+## The Honest Take: Complexity vs Speed
 
 Here's where I stop being an impartial protocol explainer and start being an engineer who's shipped multi-agent systems.
 
 **Multi-agent systems are seductive and treacherous.** The architecture diagrams look beautiful on a whiteboard. Agent A handles planning! Agent B handles research! Agent C handles execution! Clean separation of concerns! And then you actually build it and discover:
 
-**The context fragmentation problem.** When you split work across agents, you split context. Agent A knows the user's intent. Agent B knows what it found during research. Agent C knows what happened during execution. But no single agent has the full picture. When something goes wrong — and it will — debugging requires reconstructing context across multiple systems. I've spent more time building tracing and logging infrastructure for multi-agent systems than building the actual agents.
+**The context fragmentation problem.** When you split work across agents, you split context. Agent A knows the user's intent. Agent B knows what it found during research. Agent C knows what happened during execution. But no single agent has the full picture. When something goes wrong (and it will), debugging requires reconstructing context across multiple systems. I've spent more time building tracing and logging infrastructure for multi-agent systems than building the actual agents.
 
 ```python
 # What the architecture diagram promised:
@@ -419,9 +419,9 @@ planning_agent -> research_agent -> "I need clarification"
 
 **The feedback loop problem.** Good agents learn from their mistakes within a session. They try something, see it fail, adjust. When you split an agent into multiple agents, each sub-agent optimizes locally. The research agent finds great sources but doesn't know they're irrelevant to the execution step. The execution agent does its best with what it got. The planning agent never finds out that its plan was subtly wrong because the error manifests two agents downstream.
 
-**The latency tax.** Every agent-to-agent call adds latency. HTTP round trips. Serialization. Potentially cold starts if your agents are serverless. A task that takes 3 seconds in a single agent might take 15 seconds across three agents, and the user doesn't care about your architecture — they care that it's slow.
+**The latency tax.** Every agent-to-agent call adds latency. HTTP round trips. Serialization. Potentially cold starts if your agents are serverless. A task that takes 3 seconds in a single agent might take 15 seconds across three agents. The user doesn't care about your architecture; they care that it's slow.
 
-**My honest recommendation:** Start with a single agent that does everything. Seriously. One agent, one context window, one feedback loop. Only split into multiple agents when you hit a concrete wall — the context window is literally too small, the latency of a single model call is unacceptable, or you need genuinely different models for different sub-tasks (e.g., a cheap fast model for triage and an expensive smart model for analysis).
+**My honest recommendation:** Start with a single agent that does everything. Seriously. One agent, one context window, one feedback loop. Only split into multiple agents when you hit a concrete wall: the context window is literally too small, the latency of a single model call is unacceptable, or you need genuinely different models for different sub-tasks (e.g., a cheap fast model for triage and an expensive smart model for analysis).
 
 When you do split, A2A gives you a real protocol instead of bespoke REST endpoints. That's valuable. But don't let the existence of a nice protocol convince you that you *need* multiple agents. The protocol is a tool, not an architecture mandate.
 
@@ -429,13 +429,13 @@ When you do split, A2A gives you a real protocol instead of bespoke REST endpoin
 
 This brings me to something I've been thinking about a lot lately. The industry frames things as "single agent" vs "multi-agent," but there's a more nuanced spectrum:
 
-**Single agent, no tools** — a raw LLM. Limited to what's in its weights.
+**Single agent, no tools**: a raw LLM. Limited to what's in its weights.
 
-**Single agent with tools (MCP)** — one agent that can call external functions. This is where most production systems should start.
+**Single agent with tools (MCP)**: one agent that can call external functions. This is where most production systems should start.
 
-**Single agent with skills** — one agent that has multiple specialized capabilities, each with their own instructions, tools, and context management. The agent itself decides which skill to invoke. This looks like multi-agent from the outside but maintains a single context and feedback loop.
+**Single agent with skills**: one agent that has multiple specialized capabilities, each with their own instructions, tools, and context management. The agent itself decides which skill to invoke. This looks like multi-agent from the outside but maintains a single context and feedback loop.
 
-**Multi-agent (A2A)** — genuinely separate agents coordinating over a protocol. Each has its own context, its own model, potentially its own infrastructure.
+**Multi-agent (A2A)**: genuinely separate agents coordinating over a protocol. Each has its own context, its own model, potentially its own infrastructure.
 
 ```
 Raw LLM → + Tools (MCP) → + Skills → Multi-Agent (A2A)
@@ -444,11 +444,11 @@ Raw LLM → + Tools (MCP) → + Skills → Multi-Agent (A2A)
                            for most      you must
 ```
 
-The "single agent with skills" pattern is the one I'm most excited about. You get the specialization benefits of multi-agent without the context fragmentation. The agent routes to the right skill based on the task, the skill has focused instructions and tools, but everything stays in one context window. When the skill needs to reference something from earlier in the conversation, it can — because the context is right there.
+The "single agent with skills" pattern is the one I'm most excited about. You get the specialization benefits of multi-agent without the context fragmentation. The agent routes to the right skill based on the task, the skill has focused instructions and tools, but everything stays in one context window. When the skill needs to reference something from earlier in the conversation, it can, because the context is right there.
 
 I'll be writing a deep dive on the skills pattern in an upcoming post, because I think it's the architecture that most teams should reach for before going full multi-agent.
 
-## Putting It Together — A Real Example
+## Putting It Together: A Real Example
 
 Let me sketch out a concrete architecture that uses both protocols. Say you're building a customer support system. Here's how the pieces fit:
 
@@ -471,7 +471,7 @@ a2a_agents = {
 }
 ```
 
-The support agent uses MCP to look up customer info, check ticket history, and search the knowledge base. When it determines the issue needs specialized handling — a billing dispute, a complex technical problem — it delegates to a specialized A2A agent.
+The support agent uses MCP to look up customer info, check ticket history, and search the knowledge base. When it determines the issue needs specialized handling (a billing dispute, a complex technical problem), it delegates to a specialized A2A agent.
 
 ```python
 async def handle_support_request(user_message: str):
@@ -505,7 +505,7 @@ async def handle_support_request(user_message: str):
         yield answer
 ```
 
-This is the pattern I keep coming back to: MCP for tools, A2A for delegation. Most requests get handled by the primary agent with its MCP tools. The expensive A2A delegation only happens when genuinely needed.
+This is the pattern I keep coming back to: MCP for tools, A2A for delegation. Most requests get handled by the primary agent with its MCP tools. The expensive A2A delegation only happens when truly needed.
 
 ## Where This Is All Going
 
@@ -513,14 +513,14 @@ The protocol landscape is still early. A2A hit v0.3 in late 2025 and is iteratin
 
 What I expect to happen:
 
-1. **MCP becomes the standard context layer.** Every AI application will speak MCP the way every web app speaks HTTP. This is already happening — Claude, VS Code, Cursor, and others already support it.
+1. **MCP becomes the standard context layer.** Every AI application will speak MCP the way every web app speaks HTTP. This is already happening: Claude, VS Code, Cursor, and others already support it.
 
 2. **A2A becomes the standard for enterprise multi-agent systems.** As organizations deploy more specialized agents, they'll need A2A or something like it. The Google/Linux Foundation backing gives it credibility in enterprise.
 
 3. **The "skills" pattern emerges as the pragmatic middle ground.** Most teams don't need multi-agent. They need one good agent with well-defined skills. I think we'll see frameworks coalesce around this pattern.
 
-4. **Someone will build the "API gateway for agents"** — a proxy that handles A2A discovery, auth, rate limiting, and observability. This is the missing infrastructure piece.
+4. **Someone will build the "API gateway for agents"**: a proxy that handles A2A discovery, auth, rate limiting, and observability. This is the missing infrastructure piece.
 
 For now, my advice: learn MCP first (you'll use it immediately), understand A2A conceptually (you'll need it eventually), and resist the urge to build a multi-agent system until a single agent with good tools genuinely can't do the job. The boring architecture is usually the right one.
 
-Next up, I'll be writing about the skills pattern — how to give a single agent multiple specialized capabilities without the overhead of a full multi-agent system. Stay tuned.
+Next up, I'll be writing about the skills pattern: how to give a single agent multiple specialized capabilities without the overhead of a full multi-agent system. Stay tuned.

@@ -23,6 +23,7 @@ Write like a senior engineer explaining something to a peer over coffee — dire
 - Tutorial-speak ("First, let's install the required packages...")
 - Generic LLM slop — no filler paragraphs, no restating what was just said in different words
 - Hedging everything ("It could potentially be argued that...")
+- Em-dash soup — do NOT use em-dashes (—) unless absolutely necessary. LLMs over-rely on them. Use periods, commas, colons, or parentheses instead. A post should have at most a handful of em-dashes total, reserved for moments where no other punctuation works as well.
 
 Keep sections tight. If a paragraph isn't teaching something or making a point, cut it.
 
@@ -45,11 +46,13 @@ author: cmenguy
 
 If the post has a companion notebook (most code-heavy posts should), add:
 ```yaml
-colab_url: "https://colab.research.google.com/github/cmenguy/notebooks/blob/main/NOTEBOOK_NAME.ipynb"
+colab_url: "https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/YYYY-MM-DD-slug.ipynb"
 colab_embed: false
-github_notebook: "https://github.com/cmenguy/notebooks/blob/main/NOTEBOOK_NAME.ipynb"
+github_notebook: "https://github.com/cmenguy/cmenguy.github.io/blob/main/notebooks/YYYY-MM-DD-slug.ipynb"
 notebook_description: "One-line description of what the notebook does."
 ```
+
+**Important:** Notebooks live inside this repo at `notebooks/`, not in a separate `cmenguy/notebooks` repo. Both URLs must include the full path `cmenguy/cmenguy.github.io/blob/main/notebooks/...`. The notebook filename should match the post slug: `YYYY-MM-DD-slug.ipynb`.
 
 **Filename:** `_posts/YYYY-MM-DD-slug.md` where slug is lowercase with hyphens.
 
