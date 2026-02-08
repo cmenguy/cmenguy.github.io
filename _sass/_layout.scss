@@ -96,6 +96,46 @@
   }
 }
 
+// Pager controls (terminal-style pagination)
+.pager-info {
+  color: var(--gray);
+  font-size: 0.85em;
+  margin-bottom: 0.25em;
+}
+
+.pager-controls {
+  margin-top: 1.5em;
+  padding-top: 1em;
+  border-top: 1px solid var(--bg-lighter);
+}
+
+.pager-status {
+  color: var(--gray);
+  font-size: 0.8em;
+  margin-bottom: 0.5em;
+  font-style: italic;
+
+  &::before {
+    content: "-- ";
+    color: var(--gray-dark);
+  }
+
+  &::after {
+    content: " --";
+    color: var(--gray-dark);
+  }
+}
+
+.pager-nav {
+  user-select: none;
+
+  .prompt {
+    color: var(--green-dim);
+    font-size: 0.9em;
+    letter-spacing: 0.02em;
+  }
+}
+
 // Category tags
 .category-tag {
   display: inline-block;

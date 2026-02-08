@@ -11,11 +11,15 @@ title: Home
     <span class="title">~/posts</span>
   </div>
   <div class="terminal-body">
-    <p class="prompt">ls -la posts/</p>
+    <p class="prompt">ls -la posts/ | head -n 5</p>
 
-    <ul class="post-list">
+    <div class="pager-info">
+      <span class="pager-total-label">total {{ site.posts.size }}</span>
+    </div>
+
+    <ul class="post-list" id="post-list">
       {% for post in site.posts %}
-      <li class="post-entry">
+      <li class="post-entry" data-index="{{ forloop.index0 }}">
         <span class="post-entry-date">{{ post.date | date: "%Y-%m-%d" }}</span>
         <a href="{{ post.url | relative_url }}" class="post-entry-title">{{ post.title }}</a>
         {% if post.categories.size > 0 %}
@@ -32,6 +36,102 @@ title: Home
       {% endfor %}
     </ul>
 
-    <p style="margin-top: 1em;"><span class="prompt"></span><span class="cursor"></span></p>
+    <div class="pager-controls" id="pager-controls">
+      <div class="pager-status" id="pager-status"></div>
+      <div class="pager-nav" id="pager-nav">
+        <span class="prompt" id="pager-prompt"></span><span class="cursor"></span>
+      </div>
+    </div>
   </div>
 </div>
+
+<script>
+(function() {
+  var PAGE_SIZE = 5;
+  var entries = document.querySelectorAll('#post-list .post-entry');
+  var total = entries.length;
+  var totalPages = Math.ceil(total / PAGE_SIZE);
+  var currentPage = 0;
+
+  function showPage(page) {
+    currentPage = page;
+    var start = page * PAGE_SIZE;
+    var end = start + PAGE_SIZE;
+
+    for (var i = 0; i < entries.length; i++) {
+      entries[i].style.display = (i >= start && i < end) ? '' : 'none';
+    }
+
+    // Update the command in the prompt
+    var promptEl = document.querySelector('.terminal-body > .prompt');
+    if (page === 0) {
+      promptEl.textContent = 'ls -la posts/ | head -n ' + PAGE_SIZE;
+    } else {
+      var skip = page * PAGE_SIZE;
+      promptEl.textContent = 'ls -la posts/ | tail -n +' + (skip + 1) + ' | head -n ' + PAGE_SIZE;
+    }
+
+    // Update status bar
+    var statusEl = document.getElementById('pager-status');
+    var showing = Math.min(end, total);
+    statusEl.textContent = 'lines ' + (start + 1) + '-' + showing + '/' + total;
+
+    // Update nav prompt
+    var pagerPrompt = document.getElementById('pager-prompt');
+    var parts = [];
+    if (page > 0) {
+      parts.push('[p] prev');
+    }
+    if (end < total) {
+      parts.push('[n] next');
+    }
+    if (totalPages > 1) {
+      parts.push('page ' + (page + 1) + '/' + totalPages);
+    }
+    pagerPrompt.textContent = parts.join('  ');
+
+    // Show/hide nav buttons
+    var navEl = document.getElementById('pager-nav');
+    var controlsEl = document.getElementById('pager-controls');
+    if (totalPages <= 1) {
+      controlsEl.style.display = 'none';
+    } else {
+      controlsEl.style.display = '';
+    }
+  }
+
+  // Keyboard navigation
+  document.addEventListener('keydown', function(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.key === 'n' && currentPage < totalPages - 1) {
+      showPage(currentPage + 1);
+    } else if (e.key === 'p' && currentPage > 0) {
+      showPage(currentPage - 1);
+    }
+  });
+
+  // Click navigation on the pager prompt area
+  var pagerNav = document.getElementById('pager-nav');
+  pagerNav.style.cursor = 'pointer';
+  pagerNav.addEventListener('click', function(e) {
+    var rect = pagerNav.getBoundingClientRect();
+    var clickX = e.clientX - rect.left;
+    var midpoint = rect.width / 2;
+
+    if (currentPage > 0 && currentPage < totalPages - 1) {
+      // Both directions available: left half = prev, right half = next
+      if (clickX < midpoint) {
+        showPage(currentPage - 1);
+      } else {
+        showPage(currentPage + 1);
+      }
+    } else if (currentPage === 0 && totalPages > 1) {
+      showPage(currentPage + 1);
+    } else if (currentPage === totalPages - 1 && currentPage > 0) {
+      showPage(currentPage - 1);
+    }
+  });
+
+  showPage(0);
+})();
+</script>
