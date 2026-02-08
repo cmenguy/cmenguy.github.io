@@ -509,7 +509,7 @@ This is the pattern I keep coming back to: MCP for tools, A2A for delegation. Mo
 
 ## Where This Is All Going
 
-The protocol landscape is still early. A2A hit v0.3 in late 2025 and is iterating fast under the Linux Foundation. MCP has broader adoption thanks to Claude and VS Code but is still evolving (the Streamable HTTP transport is relatively new). Neither protocol has "won" because they're not in the same race.
+The protocol ecosystem is still early. A2A hit v0.3 in late 2025 and is iterating fast under the Linux Foundation. MCP has broader adoption thanks to Claude and VS Code but is still evolving (the Streamable HTTP transport is relatively new). Neither protocol has "won" because they're not in the same race.
 
 What I expect to happen:
 

@@ -11,7 +11,7 @@ I spent the holidays in France with my family: the usual routine of too much foo
 
 I've been a senior IC in ML engineering for years. I know what that identity feels like: you're the person who can hold the whole system in your head, who knows which abstractions are load-bearing, who mentors the junior folks and pushes back on product when the timeline is fantasy. That identity has been stable for a long time. But over the past few months, something shifted. I started using agentic coding tools (Claude Code, Cursor, Copilot) and at first it felt like a productivity boost. Then it started feeling like something else entirely. Like the ground was moving under my feet.
 
-By the time I got on the flight back home in early January, I'd stopped calling it a "productivity tool" in my head. I was calling it a paradigm shift. And I was having a genuine identity crisis about what it means for me, for my team, and for this entire profession.
+By the time I got on the flight back home in early January, I'd stopped calling it a "productivity tool" in my head. I was calling it a fundamental shift. And I was having a genuine identity crisis about what it means for me, for my team, and for this entire profession.
 
 ## Landing on a New Continent
 
@@ -146,19 +146,19 @@ Now someone can ask Claude Code "deploy Llama 3.1 8B for my API with the lowest 
 
 But here's the thing: the barrier dropped for *getting started*. It didn't drop for *getting it right in production*. When that vLLM server OOMs under load at 2 AM, when the quantized model starts hallucinating on edge cases your eval suite didn't cover, when you need to debug why throughput dropped 40% after a library upgrade, that's where deep understanding still matters.
 
-The net effect for ML engineers is actually empowering if you lean into it. I can now prototype things in a day that used to take a week. I can explore architectures I wouldn't have had time for. I can build end-to-end systems (from data pipeline to model to API to frontend to metrics dashboard) because the agentic tools cover my weak spots (frontend, mainly) while I focus on the parts where my expertise matters most.
+The net effect for ML engineers is actually a win if you lean into it. I can now prototype things in a day that used to take a week. I can explore architectures I wouldn't have had time for. I can build whole systems, data pipeline to model to API to frontend to metrics dashboard, because the agentic tools cover my weak spots (frontend, mainly) while I focus on the parts where my expertise matters most.
 
 The identity shift for ML engineers specifically: less "I'm the person who knows how to train models" and more "I'm the person who knows how to build AI systems that reliably deliver value." The scope expands from model to product.
 
-## The Tools Landscape: January 2026
+## The Tools in January 2026
 
-Everyone I talk to is using *something*. The landscape is moving so fast that what's best today might not be best next month, but here's my honest read of where things stand as I write this:
+Everyone I talk to is using *something*. Things are moving so fast that what's best today might not be best next month, but here's my honest read of where things stand as I write this:
 
 **Claude Code (Anthropic)**: this is my daily driver and it's not close. The agentic loop is the key differentiator. It doesn't just suggest code; it reads your codebase, runs commands, checks its own work, and iterates. For complex multi-file changes, refactors, and "build me this feature" type work, nothing else I've used comes close. Claude's ability to hold architectural intent across a long session (understanding not just the file you're in but the whole system you're building) is genuinely impressive. With Sonnet 3.5 and the newer Claude 3.5 Opus under the hood, the quality of the code it produces has taken a real step up from even six months ago.
 
 **Cursor**: still the best IDE-integrated experience. If you're an "I live in my editor" person, Cursor's inline completions and chat are excellent. It's better than Claude Code for small, targeted edits: the "fix this function" or "add a docstring here" kind of work. Where it falls short is multi-file orchestration. It thinks in files, not in systems. That said, the Composer feature has gotten significantly better at multi-step tasks.
 
-**GitHub Copilot**: still solid for line-by-line completions and increasingly good with its chat and workspace agent features. The advantage is ubiquity; it works everywhere, the VS Code integration is seamless, and for many engineers it's the gateway drug to AI-assisted coding. Copilot has been leaning harder into agentic capabilities lately, but it still feels a step behind Claude Code and Cursor when it comes to deep codebase understanding.
+**GitHub Copilot**: still solid for line-by-line completions and increasingly good with its chat and workspace agent features. The advantage is ubiquity; it works everywhere, the VS Code integration just works, and for many engineers it's the gateway drug to AI-assisted coding. Copilot has been leaning harder into agentic capabilities lately, but it still feels a step behind Claude Code and Cursor for deep codebase understanding.
 
 **Antigravity**: the dark horse that had its moment this winter. What caught my attention is the generous free tier. You get access to both Gemini and Claude models without burning through your own API credits, which makes it a fantastic way to experiment. The UX is clean, it handles multi-file edits well, and for someone who wants to try agentic coding without committing to a $20/month subscription on every tool, it's the obvious starting point. I don't think it's unseated Claude Code or Cursor for power users yet, but it's lowered the floor in a way that matters, especially for junior engineers or anyone just getting their feet wet.
 
@@ -174,6 +174,6 @@ Now, a good week looks like: identified that our model serving costs are 3x high
 
 This is uncomfortable. I got into engineering because I love building things with my hands (metaphorically). There's a deep satisfaction in writing an elegant solution to a hard problem that no AI can replicate for me emotionally, even if it can replicate the code. I'm still processing that loss.
 
-But the new continent is out there, and the map still says *here be dragons*. The explorers who thrive won't be the ones who insist on rowing their own boats. They'll be the ones who figure out how to navigate — who learn to read the new terrain, who build the maps, who know where the actual treasure is buried versus where the easy coastline ends.
+But the new continent is out there, and the map still says *here be dragons*. The people who thrive won't be the ones who insist on doing everything by hand. They'll be the ones who learn the new terrain, figure out what's actually valuable, and move fast while everyone else is still arguing about whether the map is real.
 
-The dragons are real. The territory is uncharted. Go anyway.
+The dragons are real. The territory is unknown. Go anyway.

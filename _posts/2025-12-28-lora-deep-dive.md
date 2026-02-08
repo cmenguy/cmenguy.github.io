@@ -659,4 +659,4 @@ for name, module in model.named_modules():
 
 LoRA's elegance is in how simple it actually is once you see the math. Freeze the pretrained weights, learn a low-rank update decomposed into two small matrices, and add it to the forward pass with a scaling factor. That's the whole algorithm. The rest is engineering: choosing which layers to target, setting the rank and scaling, deciding whether to merge for serving or keep adapters separate for flexibility.
 
-The next time you write `LoraConfig(r=16, lora_alpha=32)`, you'll know exactly what those numbers mean and why they matter. And when someone on your team asks "can we make r bigger?" you'll be able to explain not just *whether* to do it, but *what* it actually changes in the weight space.
+The next time you write `LoraConfig(r=16, lora_alpha=32)`, you'll know exactly what those numbers mean and why they matter. And when someone on your team asks "can we make r bigger?" you'll be able to explain *what* it actually changes in the weight space, not just *whether* to do it.

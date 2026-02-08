@@ -46,7 +46,7 @@ Three reasons kept pushing me past the prompt-engineering ceiling:
 
 So the rule of thumb I landed on: if you have one brand and simple requirements, prompt engineering is the right call. If you have many brands, need tight consistency, or have preference data you want to exploit, that's when fine-tuning starts paying for itself.
 
-## The Landscape
+## The Setup
 
 Here's the scenario I keep coming back to. You're building an AI-powered marketing platform. Customers upload their brand guidelines, past campaigns, and tone-of-voice docs. They want the LLM to generate email subject lines, ad copy, social media posts, and product descriptions that are indistinguishable from what their in-house team would write.
 
@@ -415,7 +415,7 @@ Here's why, stage by stage:
 
 **Phase 1: SFT to capture brand voice.** Collect 500-1000 examples of approved marketing copy per customer. Email subjects, product descriptions, social posts, all tagged with the prompt that generated them. Fine-tune with LoRA. This alone gets you 80% of the way to sounding like the brand.
 
-**Phase 2: DPO to learn preferences.** Once you have SFT running, start collecting preference data. This is natural in marketing: A/B test results (version A got 3x clicks), editorial reviews (the brand team picked option 2), compliance flags (this version violated guidelines). Feed these as preference pairs into DPO. The model learns not just *what* good copy looks like, but *why* one version is better than another.
+**Phase 2: DPO to learn preferences.** Once you have SFT running, start collecting preference data. This is natural in marketing: A/B test results (version A got 3x clicks), editorial reviews (the brand team picked option 2), compliance flags (this version violated guidelines). Feed these as preference pairs into DPO. The model learns *why* one version is better than another, not just *what* good copy looks like.
 
 **Phase 3: RLHF only at scale.** If you're running millions of campaigns across hundreds of brands and have a genuine signal for what converts, a dedicated reward model starts to make sense. It can generalize across brands and capture patterns that individual preference pairs can't. But you need the data volume and the engineering team to support it.
 
