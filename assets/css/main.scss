@@ -78,6 +78,94 @@
   }
 }
 
+// Reading list styles
+.reading-section {
+  margin-bottom: 1.5em;
+}
+
+.reading-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.reading-entry {
+  padding: 0.6em 0;
+  border-bottom: 1px solid var(--bg-lighter);
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  a {
+    color: var(--green);
+    font-weight: 500;
+
+    &:hover {
+      color: var(--amber);
+    }
+  }
+
+  .reading-author {
+    color: var(--gray);
+    font-size: 0.8em;
+    margin-left: 0.5em;
+
+    &::before {
+      content: "— ";
+    }
+  }
+
+  .reading-note {
+    color: var(--gray);
+    font-size: 0.85em;
+    margin: 0.25em 0 0 0;
+    padding-left: 0;
+  }
+}
+
+.reading-type {
+  display: inline-block;
+  font-size: 0.7em;
+  padding: 0.1em 0.5em;
+  border-radius: 3px;
+  margin-right: 0.4em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  vertical-align: middle;
+
+  &.type-paper {
+    background: var(--bg-lighter);
+    color: var(--cyan);
+    border: 1px solid var(--cyan);
+  }
+
+  &.type-repo {
+    background: var(--bg-lighter);
+    color: var(--amber);
+    border: 1px solid var(--amber);
+  }
+
+  &.type-post {
+    background: var(--bg-lighter);
+    color: var(--green);
+    border: 1px solid var(--green);
+  }
+
+  &.type-spec {
+    background: var(--bg-lighter);
+    color: var(--white);
+    border: 1px solid var(--gray);
+  }
+
+  &.type-social {
+    background: var(--bg-lighter);
+    color: var(--red);
+    border: 1px solid var(--red);
+  }
+}
+
 // KaTeX overrides for terminal theme
 .katex {
   font-size: 1.1em;

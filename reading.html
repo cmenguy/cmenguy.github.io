@@ -1,0 +1,278 @@
+---
+layout: default
+title: Reading List
+permalink: /reading/
+---
+
+<div class="terminal-window">
+  <div class="terminal-titlebar">
+    <span class="dot red"></span>
+    <span class="dot yellow"></span>
+    <span class="dot green"></span>
+    <span class="title">~/reading</span>
+  </div>
+  <div class="terminal-body">
+    <p class="prompt">cat reading_list.txt</p>
+    <p style="color: var(--gray); margin-bottom: 1.5em;">Papers, posts, repos, and people I keep coming back to. Updated as I read.</p>
+
+    <p class="prompt">ls papers/</p>
+
+    <div class="reading-section">
+      <ul class="reading-list">
+        <li class="reading-entry">
+          <span class="reading-type type-paper">paper</span>
+          <a href="https://arxiv.org/abs/1706.03762" target="_blank" rel="noopener">Attention Is All You Need</a>
+          <span class="reading-author">Vaswani et al., 2017</span>
+          <p class="reading-note">The one that started it all. Still the clearest explanation of why scaling dot-product attention works.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-paper">paper</span>
+          <a href="https://arxiv.org/abs/2106.09685" target="_blank" rel="noopener">LoRA: Low-Rank Adaptation of Large Language Models</a>
+          <span class="reading-author">Hu et al., 2021</span>
+          <p class="reading-note">The insight that fine-tuning weight updates are low-rank changed how I think about parameter efficiency.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-paper">paper</span>
+          <a href="https://arxiv.org/abs/1412.6980" target="_blank" rel="noopener">Adam: A Method for Stochastic Optimization</a>
+          <span class="reading-author">Kingma &amp; Ba, 2015</span>
+          <p class="reading-note">Bias correction in the moment estimates is one of those small ideas that made a massive practical difference.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-paper">paper</span>
+          <a href="https://arxiv.org/abs/1911.02150" target="_blank" rel="noopener">Fast Transformer Decoding: One Write-Head is All You Need</a>
+          <span class="reading-author">Shazeer, 2019</span>
+          <p class="reading-note">Multi-query attention. Sharing a single KV head across all query heads cuts KV cache memory without hurting quality much.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-paper">paper</span>
+          <a href="https://arxiv.org/abs/2305.13245" target="_blank" rel="noopener">GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints</a>
+          <span class="reading-author">Ainslie et al., 2023</span>
+          <p class="reading-note">The middle ground between MHA and MQA. Most production models (Llama 3, Mistral) use this now.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-paper">paper</span>
+          <a href="https://arxiv.org/abs/1904.10509" target="_blank" rel="noopener">Generating Long Sequences with Sparse Transformers</a>
+          <span class="reading-author">Child et al., 2019</span>
+          <p class="reading-note">First serious attempt at breaking the quadratic attention bottleneck with fixed sparse patterns.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-paper">paper</span>
+          <a href="https://arxiv.org/abs/2310.06825" target="_blank" rel="noopener">Mistral 7B</a>
+          <span class="reading-author">Jiang et al., 2023</span>
+          <p class="reading-note">Sliding window attention + GQA in a single 7B model that punches above its weight class.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-paper">paper</span>
+          <a href="https://arxiv.org/abs/2205.14135" target="_blank" rel="noopener">FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness</a>
+          <span class="reading-author">Dao et al., 2022</span>
+          <p class="reading-note">Reframing attention as an IO problem rather than a compute problem. Tiling to SRAM is the key trick.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-paper">paper</span>
+          <a href="https://arxiv.org/abs/2207.14255" target="_blank" rel="noopener">Efficient Training of Language Models to Fill in the Middle</a>
+          <span class="reading-author">Bavarian et al., 2022</span>
+          <p class="reading-note">FIM training costs almost nothing extra and gives you code infilling for free. The basis of how Copilot-style tools work.</p>
+        </li>
+      </ul>
+    </div>
+
+    <p class="prompt">ls repos/</p>
+
+    <div class="reading-section">
+      <ul class="reading-list">
+        <li class="reading-entry">
+          <span class="reading-type type-repo">repo</span>
+          <a href="https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95" target="_blank" rel="noopener">karpathy/microgpt.py</a>
+          <span class="reading-author">Andrej Karpathy</span>
+          <p class="reading-note">A full GPT in ~200 lines of pure Python with zero dependencies. Proof that the algorithm is simple; everything else is efficiency.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-repo">repo</span>
+          <a href="https://github.com/karpathy/makemore" target="_blank" rel="noopener">karpathy/makemore</a>
+          <span class="reading-author">Andrej Karpathy</span>
+          <p class="reading-note">Character-level language modeling from bigrams to transformers. The best incremental teaching sequence I've seen for neural nets.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-repo">repo</span>
+          <a href="https://huggingface.co/bigcode/tiny_starcoder_py" target="_blank" rel="noopener">bigcode/tiny_starcoder_py</a>
+          <span class="reading-author">BigCode</span>
+          <p class="reading-note">A 164M param code model with FIM support. Small enough to prototype on a laptop, large enough to produce real completions.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-repo">repo</span>
+          <a href="https://github.com/karpathy/nanoGPT" target="_blank" rel="noopener">karpathy/nanoGPT</a>
+          <span class="reading-author">Andrej Karpathy</span>
+          <p class="reading-note">The next step up from microgpt.py. Reproduces GPT-2 training in ~300 lines with real performance on a single GPU.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-repo">repo</span>
+          <a href="https://github.com/rasbt/LLMs-from-scratch" target="_blank" rel="noopener">rasbt/LLMs-from-scratch</a>
+          <span class="reading-author">Sebastian Raschka</span>
+          <p class="reading-note">A full book building LLMs from scratch in PyTorch. Same "understand by implementing" spirit as my GPT-in-pure-Python post, but taken much further.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-repo">repo</span>
+          <a href="https://github.com/vllm-project/vllm" target="_blank" rel="noopener">vllm-project/vllm</a>
+          <span class="reading-author">vLLM Team</span>
+          <p class="reading-note">PagedAttention for inference serving. This is what you'd actually use to deploy the fine-tuned code models from my Copilot post.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-repo">repo</span>
+          <a href="https://github.com/ggerganov/llama.cpp" target="_blank" rel="noopener">ggerganov/llama.cpp</a>
+          <span class="reading-author">Georgi Gerganov</span>
+          <p class="reading-note">LLM inference in C++ with quantization for CPU/Metal/CUDA. The reason you can run a 7B model on a laptop.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-repo">repo</span>
+          <a href="https://github.com/unslothai/unsloth" target="_blank" rel="noopener">unslothai/unsloth</a>
+          <span class="reading-author">Unsloth AI</span>
+          <p class="reading-note">2x faster LoRA fine-tuning with 70% less VRAM using custom Triton kernels. Drop-in replacement for the training loop in my Copilot post.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-repo">repo</span>
+          <a href="https://github.com/pytorch/torchtune" target="_blank" rel="noopener">pytorch/torchtune</a>
+          <span class="reading-author">PyTorch Team</span>
+          <p class="reading-note">PyTorch-native fine-tuning with SFT, DPO, and GRPO recipes. Cleaner alternative to trl for production training pipelines.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-repo">repo</span>
+          <a href="https://github.com/Dao-AILab/flash-attention" target="_blank" rel="noopener">Dao-AILab/flash-attention</a>
+          <span class="reading-author">Tri Dao</span>
+          <p class="reading-note">The actual implementation behind the FlashAttention paper I covered. Reading the CUDA kernels teaches you more about GPU programming than any tutorial.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-repo">repo</span>
+          <a href="https://github.com/state-spaces/mamba" target="_blank" rel="noopener">state-spaces/mamba</a>
+          <span class="reading-author">Albert Gu &amp; Tri Dao</span>
+          <p class="reading-note">Reference implementation of the main challenger to transformers. Linear complexity with selective state spaces instead of attention.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-repo">repo</span>
+          <a href="https://github.com/guidance-ai/guidance" target="_blank" rel="noopener">guidance-ai/guidance</a>
+          <span class="reading-author">Guidance AI</span>
+          <p class="reading-note">Constrained generation with regex, CFGs, and JSON schema enforcement. Useful for getting structured code output from the NL2Code pipeline.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-repo">repo</span>
+          <a href="https://github.com/ml-explore/mlx" target="_blank" rel="noopener">ml-explore/mlx</a>
+          <span class="reading-author">Apple</span>
+          <p class="reading-note">Apple's ML framework for unified memory on Apple Silicon. I develop on a Mac, so this is how I run local inference without fighting CUDA.</p>
+        </li>
+      </ul>
+    </div>
+
+    <p class="prompt">ls specs/</p>
+
+    <div class="reading-section">
+      <ul class="reading-list">
+        <li class="reading-entry">
+          <span class="reading-type type-spec">spec</span>
+          <a href="https://agentskills.io" target="_blank" rel="noopener">Agent Skills Specification</a>
+          <span class="reading-author">Open Standard</span>
+          <p class="reading-note">The open spec for portable agent skills. A markdown file replacing a microservice felt crazy until I tried it.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-spec">spec</span>
+          <a href="https://google.github.io/A2A/" target="_blank" rel="noopener">A2A (Agent-to-Agent) Protocol</a>
+          <span class="reading-author">Google / Linux Foundation</span>
+          <p class="reading-note">Peer-to-peer agent coordination with discovery, task lifecycle, and streaming. The missing complement to MCP's tool layer.</p>
+        </li>
+      </ul>
+    </div>
+
+    <p class="prompt">ls blogs/</p>
+
+    <div class="reading-section">
+      <ul class="reading-list">
+        <li class="reading-entry">
+          <span class="reading-type type-post">blog</span>
+          <a href="https://lilianweng.github.io" target="_blank" rel="noopener">Lil'Log</a>
+          <span class="reading-author">Lilian Weng</span>
+          <p class="reading-note">The gold standard for technical ML writeups. Her posts on agents, attention, and RLHF are the ones I re-read when I need to actually understand something.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-post">blog</span>
+          <a href="https://sebastianraschka.com/blog" target="_blank" rel="noopener">Sebastian Raschka's Blog</a>
+          <span class="reading-author">Sebastian Raschka</span>
+          <p class="reading-note">His LLM implementation walkthroughs and KV cache deep-dives hit the same "build it to understand it" philosophy I try to follow.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-post">blog</span>
+          <a href="https://simonwillison.net" target="_blank" rel="noopener">Simon Willison's Blog</a>
+          <span class="reading-author">Simon Willison</span>
+          <p class="reading-note">Nobody ships more practical LLM experiments per week. His posts on tool use and agentic patterns are consistently ahead of the curve.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-post">blog</span>
+          <a href="https://hamel.dev" target="_blank" rel="noopener">Hamel Husain's Blog</a>
+          <span class="reading-author">Hamel Husain</span>
+          <p class="reading-note">The best writing I've found on LLM evaluation and production fine-tuning. His "Your AI Product Needs Evals" post should be required reading.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-post">blog</span>
+          <a href="https://eugeneyan.com" target="_blank" rel="noopener">Eugene Yan's Blog</a>
+          <span class="reading-author">Eugene Yan</span>
+          <p class="reading-note">Production ML systems at Amazon scale. His patterns for LLM applications and retrieval systems are battle-tested, not theoretical.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-post">blog</span>
+          <a href="https://cameronrwolfe.substack.com" target="_blank" rel="noopener">Deep Learning Focus</a>
+          <span class="reading-author">Cameron Wolfe</span>
+          <p class="reading-note">Turns dense papers into readable technical breakdowns. His posts on SFT, transformers, and reasoning are how I stay current without reading 30 papers a week.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-post">blog</span>
+          <a href="https://www.latent.space/about" target="_blank" rel="noopener">Latent Space</a>
+          <span class="reading-author">swyx &amp; Alessio</span>
+          <p class="reading-note">The podcast and newsletter that defined "AI engineer" as a role. Their interviews with researchers at OpenAI, Anthropic, and Meta are primary sources.</p>
+        </li>
+      </ul>
+    </div>
+
+    <p class="prompt">ls social/</p>
+
+    <div class="reading-section">
+      <ul class="reading-list">
+        <li class="reading-entry">
+          <span class="reading-type type-social">social</span>
+          <a href="https://x.com/karpathy" target="_blank" rel="noopener">@karpathy</a>
+          <span class="reading-author">Andrej Karpathy</span>
+          <p class="reading-note">His posts are primary sources for half the things I write about. When he drops a gist or a thread, I stop what I'm doing and read it.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-social">social</span>
+          <a href="https://x.com/simonw" target="_blank" rel="noopener">@simonw</a>
+          <span class="reading-author">Simon Willison</span>
+          <p class="reading-note">Posts daily LLM experiments with working code. Best signal-to-noise ratio on AI Twitter for practical engineering.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-social">social</span>
+          <a href="https://x.com/rasbt" target="_blank" rel="noopener">@rasbt</a>
+          <span class="reading-author">Sebastian Raschka</span>
+          <p class="reading-note">Threads breaking down training recipes and implementation details that don't make it into papers.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-social">social</span>
+          <a href="https://x.com/eugeneyan" target="_blank" rel="noopener">@eugeneyan</a>
+          <span class="reading-author">Eugene Yan</span>
+          <p class="reading-note">Production ML patterns from someone who actually ships these systems at scale.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-social">social</span>
+          <a href="https://x.com/swyx" target="_blank" rel="noopener">@swyx</a>
+          <span class="reading-author">Shawn Wang</span>
+          <p class="reading-note">Coined the "AI engineer" framing. His takes on the ecosystem and where things are heading tend to age well.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-social">social</span>
+          <a href="https://x.com/cwolferesearch" target="_blank" rel="noopener">@cwolferesearch</a>
+          <span class="reading-author">Cameron Wolfe</span>
+          <p class="reading-note">Posts concise technical breakdowns of new papers within days of release. My early warning system for what's worth reading.</p>
+        </li>
+      </ul>
+    </div>
+
+    <p style="margin-top: 1.5em; color: var(--gray); font-size: 0.85em;">EOF ({{ "now" | date: "%Y-%m-%d" }})</p>
+    <p style="margin-top: 1em;"><span class="prompt"></span><span class="cursor"></span></p>
+  </div>
+</div>

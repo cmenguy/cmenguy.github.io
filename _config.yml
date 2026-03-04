@@ -1,8 +1,26 @@
 title: "cmenguy@terminal:~$"
-description: "AI/ML Engineering Blog — LLMs, ML Systems, and Deep Learning"
+description: "AI/ML Engineering Blog — LLMs, ML Systems, and Deep Learning. Code-first deep-dives into transformers, fine-tuning, inference, and production ML systems."
 url: "https://ai-terminal.net"
 baseurl: ""
-author: cmenguy
+lang: en
+
+author:
+  name: Charles Menguy
+  twitter: aiterminalhq
+  url: https://ai-terminal.net/about/
+
+twitter:
+  username: aiterminalhq
+  card: summary
+
+social:
+  name: Charles Menguy
+  links:
+    - https://x.com/aiterminalhq
+    - https://github.com/cmenguy
+    - https://www.linkedin.com/in/charlesmenguy/
+
+logo: /assets/images/favicon.svg
 
 permalink: /:categories/:year/:month/:day/:title/
 
