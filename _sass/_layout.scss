@@ -312,6 +312,22 @@
     background: transparent;
     border-color: transparent;
   }
+
+  &--placeholder {
+    text-align: right;
+    border-style: dashed;
+    cursor: default;
+
+    .post-sibling-label {
+      color: var(--gray-dark);
+    }
+
+    .post-sibling-title {
+      color: var(--gray-dark);
+      font-style: italic;
+      font-weight: 400;
+    }
+  }
 }
 
 .post-sibling-label {

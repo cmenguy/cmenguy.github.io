@@ -14,7 +14,10 @@
     <span class="post-sibling-title">{{ page.next.title }}</span>
   </a>
   {% else %}
-  <span class="post-sibling post-sibling--empty"></span>
+  <span class="post-sibling post-sibling--placeholder">
+    <span class="post-sibling-label">Next Up &rarr;</span>
+    <span class="post-sibling-title">Nothing yet — check back soon!</span>
+  </span>
   {% endif %}
 </nav>
 {% endif %}
