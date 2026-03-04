@@ -1,0 +1,20 @@
+{% if page.previous or page.next %}
+<nav class="post-siblings">
+  {% if page.previous %}
+  <a class="post-sibling post-sibling--prev" href="{{ page.previous.url | relative_url }}">
+    <span class="post-sibling-label">&larr; Previous</span>
+    <span class="post-sibling-title">{{ page.previous.title }}</span>
+  </a>
+  {% else %}
+  <span class="post-sibling post-sibling--empty"></span>
+  {% endif %}
+  {% if page.next %}
+  <a class="post-sibling post-sibling--next" href="{{ page.next.url | relative_url }}">
+    <span class="post-sibling-label">Next Up &rarr;</span>
+    <span class="post-sibling-title">{{ page.next.title }}</span>
+  </a>
+  {% else %}
+  <span class="post-sibling post-sibling--empty"></span>
+  {% endif %}
+</nav>
+{% endif %}

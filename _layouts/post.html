@@ -24,6 +24,8 @@ layout: default
       </div>
     </header>
 
+    {% include post-nav-siblings.html %}
+
     {% if page.colab_url %}
       {% include notebook.html url=page.colab_url embed=page.colab_embed github=page.github_notebook description=page.notebook_description %}
     {% endif %}
@@ -33,6 +35,8 @@ layout: default
     </div>
 
     {% include subscribe.html %}
+
+    {% include post-nav-siblings.html %}
 
     <div class="post-nav">
       <a href="{{ '/' | relative_url }}">&larr; Back to posts</a>
