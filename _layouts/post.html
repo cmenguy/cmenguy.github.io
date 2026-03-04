@@ -1,39 +1,45 @@
 ---
 layout: default
 ---
-<article class="post" itemscope itemtype="https://schema.org/BlogPosting">
-  <header class="post-header">
-    <h1 class="post-title" itemprop="headline">{{ page.title }}</h1>
-    <div class="post-meta">
-      <time class="post-date" datetime="{{ page.date | date_to_xmlschema }}" itemprop="datePublished">{{ page.date | date: "%Y-%m-%d" }}</time>
-      {% if page.categories.size > 0 %}
-      <span class="post-categories">
-        {% for cat in page.categories %}
-        <span class="category-tag">{{ cat }}</span>
-        {% endfor %}
-      </span>
-      {% endif %}
-      {% if page.tags.size > 0 %}
-      <span class="post-tags">
-        {% for tag in page.tags %}
-        <span class="post-tag">{{ tag }}</span>
-        {% endfor %}
-      </span>
-      {% endif %}
+<div class="post-wrapper">
+  <article class="post" itemscope itemtype="https://schema.org/BlogPosting">
+    <header class="post-header">
+      <h1 class="post-title" itemprop="headline">{{ page.title }}</h1>
+      <div class="post-meta">
+        <time class="post-date" datetime="{{ page.date | date_to_xmlschema }}" itemprop="datePublished">{{ page.date | date: "%Y-%m-%d" }}</time>
+        {% if page.categories.size > 0 %}
+        <span class="post-categories">
+          {% for cat in page.categories %}
+          <span class="category-tag">{{ cat }}</span>
+          {% endfor %}
+        </span>
+        {% endif %}
+        {% if page.tags.size > 0 %}
+        <span class="post-tags">
+          {% for tag in page.tags %}
+          <span class="post-tag">{{ tag }}</span>
+          {% endfor %}
+        </span>
+        {% endif %}
+      </div>
+    </header>
+
+    {% if page.colab_url %}
+      {% include notebook.html url=page.colab_url embed=page.colab_embed github=page.github_notebook description=page.notebook_description %}
+    {% endif %}
+
+    <div class="post-content" itemprop="articleBody">
+      {{ content }}
     </div>
-  </header>
 
-  {% if page.colab_url %}
-    {% include notebook.html url=page.colab_url embed=page.colab_embed github=page.github_notebook description=page.notebook_description %}
-  {% endif %}
+    {% include subscribe.html %}
 
-  <div class="post-content" itemprop="articleBody">
-    {{ content }}
-  </div>
-
-  {% include subscribe.html %}
-
-  <div class="post-nav">
-    <a href="{{ '/' | relative_url }}">&larr; Back to posts</a>
-  </div>
-</article>
+    <div class="post-nav">
+      <a href="{{ '/' | relative_url }}">&larr; Back to posts</a>
+    </div>
+  </article>
+  <nav class="toc" id="toc">
+    <div class="toc-title">contents</div>
+    <ul class="toc-list"></ul>
+  </nav>
+</div>
