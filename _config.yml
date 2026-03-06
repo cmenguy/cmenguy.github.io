@@ -59,3 +59,4 @@ exclude:
   - node_modules
   - README.md
   - notebooks/
+  - _medium/

@@ -1,0 +1,873 @@
+<h1>Is Attention Really All You Need?</h1>
+<hr />
+<p><strong>Runnable implementations of every attention variant covered in the post, from vanilla scaled dot-product to flash attention.</strong></p>
+<p><a href="https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-02-28-attention-mechanisms.ipynb">Run in Google Colab</a> | <a href="https://github.com/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-02-28-attention-mechanisms.ipynb">View on GitHub</a></p>
+<hr />
+<p>A couple weeks ago I wrote a <a href="https://ai-terminal.net/deep-learning/llm/2026/02/16/gpt-in-pure-python/">walkthrough of Karpathy's microgpt.py</a>, tracing every line of a GPT implementation in pure Python. While putting that post together, I kept wanting to linger on the attention section. The scaled dot-product formula showed up, multi-head attention showed up, I explained them, and moved on. But there was so much more to say. The attention mechanism in that 200-line implementation is the same one from the 2017 paper. Production models in 2026 use something very different. Flash attention, grouped-query attention, sliding windows, sparse patterns. The core Q, K, V math stays the same, but the way it gets computed, what gets masked, and how memory gets managed have all evolved significantly.</p>
+<p>I'll be upfront: I was never a deep math guy. I didn't come up through a pure ML research track. I'm an engineer who builds systems that use these models, and for a long time I treated attention as a black box with a formula I could recite but didn't fully feel in my bones. That was fine when every model used the same vanilla multi-head attention. It's not fine anymore. When you're picking between GQA and MQA for a serving setup, or trying to understand why your 128k context model OOMs while your colleague's doesn't, you need to know what changed and why. So I went back and traced the evolution properly, starting from the original 2017 formulation and working forward to what's actually running in production today.</p>
+<p>This post walks through every major attention variant you'll encounter in modern transformer models. For each one: the math, a visual to build intuition, working code, and when you'd actually use it. Think of it as the attention chapter that the GPT post didn't have room for.</p>
+<h2>Scaled Dot-Product Attention: The Foundation</h2>
+<p>Everything starts here. This is Section 3.2.1 of <a href="https://arxiv.org/abs/1706.03762">Attention Is All You Need</a>, and it's what we saw in the microgpt.py walkthrough.</p>
+<p>You have three matrices: queries (Q), keys (K), and values (V). The query asks "what am I looking for?", the key says "what do I contain?", and the value says "here's my actual information." Attention computes a weighted sum of values, where the weights come from how well each query matches each key.</p>
+<p>The formula:</p>
+<p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Ctext%7BAttention%7D%28Q%2C%20K%2C%20V%29%20%3D%20%5Ctext%7Bsoftmax%7D%5Cleft%28%5Cfrac%7BQK%5ET%7D%7B%5Csqrt%7Bd_k%7D%7D%5Cright%29V" /></p>
+<p>Let's break this into steps. Say we have a sequence of 4 tokens, each with embedding dimension 8. Q, K, and V are all shape (4, 8).</p>
+<div class="codehilite"><pre><span></span><code><span class="n">Step</span><span class="w"> </span><span class="mi">1</span><span class="o">:</span><span class="w"> </span><span class="n">QK</span><span class="o">^</span><span class="n">T</span><span class="w">       </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">)</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="p">(</span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="n">matrix</span><span class="w"> </span><span class="kr">of</span><span class="w"> </span><span class="n">raw</span><span class="w"> </span><span class="n">scores</span>
+<span class="n">Step</span><span class="w"> </span><span class="mi">2</span><span class="o">:</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="nf">sqrt</span><span class="p">(</span><span class="n">dk</span><span class="p">)</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">scale</span><span class="w"> </span><span class="n">each</span><span class="w"> </span><span class="n">score</span><span class="w"> </span><span class="n">by</span><span class="w"> </span><span class="mi">1</span><span class="o">/</span><span class="nf">sqrt</span><span class="p">(</span><span class="mi">8</span><span class="p">)</span><span class="w"> </span><span class="err">≈</span><span class="w"> </span><span class="mf">0.354</span>
+<span class="n">Step</span><span class="w"> </span><span class="mi">3</span><span class="o">:</span><span class="w"> </span><span class="n">softmax</span><span class="w">    </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">each</span><span class="w"> </span><span class="nf">row</span><span class="w"> </span><span class="n">becomes</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="n">probability</span><span class="w"> </span><span class="nf">distribution</span>
+<span class="n">Step</span><span class="w"> </span><span class="mi">4</span><span class="o">:</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="n">V</span><span class="w">        </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">)</span><span class="w"> </span><span class="n">weighted</span><span class="w"> </span><span class="nf">sum</span><span class="w"> </span><span class="kr">of</span><span class="w"> </span><span class="n">values</span>
+</code></pre></div>
+
+<p>The output has the same shape as the input. Each position gets a new representation that's a weighted mix of all the value vectors, with weights determined by query-key similarity.</p>
+<p>Here's the implementation in PyTorch:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span> <span class="nn">torch.nn.functional</span> <span class="k">as</span> <span class="nn">F</span>
+<span class="kn">import</span> <span class="nn">math</span>
+
+<span class="k">def</span> <span class="nf">scaled_dot_product_attention</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">V</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Q, K, V: shape (seq_len, d_k)</span>
+<span class="sd">    Returns: shape (seq_len, d_k)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">d_k</span> <span class="o">=</span> <span class="n">Q</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">scores</span> <span class="o">=</span> <span class="n">Q</span> <span class="o">@</span> <span class="n">K</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">d_k</span><span class="p">)</span>
+    <span class="n">weights</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">scores</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">weights</span> <span class="o">@</span> <span class="n">V</span>
+</code></pre></div>
+
+<p>And a pure Python version that mirrors what microgpt.py does, without any libraries:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="nf">attention_pure</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">V</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Pure Python attention. Q, K, V are lists of lists.&quot;&quot;&quot;</span>
+    <span class="n">d_k</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">Q</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+    <span class="n">scale</span> <span class="o">=</span> <span class="n">d_k</span> <span class="o">**</span> <span class="mf">0.5</span>
+    <span class="n">seq_len</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">Q</span><span class="p">)</span>
+
+    <span class="c1"># Step 1-2: scaled dot products</span>
+    <span class="n">scores</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">seq_len</span><span class="p">):</span>
+        <span class="n">row</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">seq_len</span><span class="p">):</span>
+            <span class="n">dot</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">Q</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">k</span><span class="p">]</span> <span class="o">*</span> <span class="n">K</span><span class="p">[</span><span class="n">j</span><span class="p">][</span><span class="n">k</span><span class="p">]</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">d_k</span><span class="p">))</span>
+            <span class="n">row</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">dot</span> <span class="o">/</span> <span class="n">scale</span><span class="p">)</span>
+        <span class="n">scores</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">row</span><span class="p">)</span>
+
+    <span class="c1"># Step 3: softmax per row</span>
+    <span class="n">weights</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">scores</span><span class="p">:</span>
+        <span class="n">max_val</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">row</span><span class="p">)</span>
+        <span class="n">exps</span> <span class="o">=</span> <span class="p">[</span><span class="n">math</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="n">max_val</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">row</span><span class="p">]</span>
+        <span class="n">total</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">exps</span><span class="p">)</span>
+        <span class="n">weights</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">e</span> <span class="o">/</span> <span class="n">total</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">exps</span><span class="p">])</span>
+
+    <span class="c1"># Step 4: weighted sum of values</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">seq_len</span><span class="p">):</span>
+        <span class="n">vec</span> <span class="o">=</span> <span class="p">[</span><span class="mf">0.0</span><span class="p">]</span> <span class="o">*</span> <span class="n">d_k</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">seq_len</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">d_k</span><span class="p">):</span>
+                <span class="n">vec</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">+=</span> <span class="n">weights</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">]</span> <span class="o">*</span> <span class="n">V</span><span class="p">[</span><span class="n">j</span><span class="p">][</span><span class="n">k</span><span class="p">]</span>
+        <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">vec</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">out</span>
+</code></pre></div>
+
+<p>Let's verify they produce the same result:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
+<span class="n">seq_len</span><span class="p">,</span> <span class="n">d_k</span> <span class="o">=</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">8</span>
+<span class="n">Q</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">seq_len</span><span class="p">,</span> <span class="n">d_k</span><span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">seq_len</span><span class="p">,</span> <span class="n">d_k</span><span class="p">)</span>
+<span class="n">V</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">seq_len</span><span class="p">,</span> <span class="n">d_k</span><span class="p">)</span>
+
+<span class="n">out_torch</span> <span class="o">=</span> <span class="n">scaled_dot_product_attention</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">V</span><span class="p">)</span>
+<span class="n">out_pure</span> <span class="o">=</span> <span class="n">attention_pure</span><span class="p">(</span>
+    <span class="n">Q</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> <span class="n">K</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> <span class="n">V</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+<span class="p">)</span>
+<span class="n">out_pure_t</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">out_pure</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Max difference: </span><span class="si">{</span><span class="p">(</span><span class="n">out_torch</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">out_pure_t</span><span class="p">)</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.2e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="c1"># Max difference: 5.96e-08</span>
+</code></pre></div>
+
+<p>Same result, give or take floating point precision. The PyTorch version runs ~1000x faster on GPU because it's one batched matrix multiply instead of nested Python loops.</p>
+<p><strong>Why the <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Csqrt%7Bd_k%7D" /> scaling?</strong> Without it, dot products grow proportionally to <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_k" />. If your keys and queries have entries with zero mean and unit variance, the expected value of each dot product is 0, but the variance is <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_k" />. For <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_k%20%3D%2064" /> (common in practice), that means scores can easily be in the range [-20, 20], which pushes softmax into near-one-hot territory where gradients vanish. Dividing by <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Csqrt%7Bd_k%7D" /> brings the variance back to 1.</p>
+<p><strong>When is this used?</strong> This exact formulation appears inside every transformer, but never alone. It's always wrapped in multi-head attention (next section). The standalone version is mostly useful for teaching and debugging.</p>
+<h2>Multi-Head Attention: Parallel Perspectives</h2>
+<p>Single-head attention has a limitation: the model gets one "perspective" on how tokens relate. Multi-head attention runs several attention operations in parallel, each with different learned projections, then concatenates the results.</p>
+<p>From Section 3.2.2 of the paper:</p>
+<p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Ctext%7BMultiHead%7D%28Q%2C%20K%2C%20V%29%20%3D%20%5Ctext%7BConcat%7D%28%5Ctext%7Bhead%7D_1%2C%20%5Cdots%2C%20%5Ctext%7Bhead%7D_h%29W%5EO" /></p>
+<p>where <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Ctext%7Bhead%7D_i%20%3D%20%5Ctext%7BAttention%7D%28QW_i%5EQ%2C%20KW_i%5EK%2C%20VW_i%5EV%29" /></p>
+<p>Visually, here's what happens for 4 heads with <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_%7Bmodel%7D%20%3D%2016" /> and <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_k%20%3D%204" /> per head:</p>
+<div class="codehilite"><pre><span></span><code>Input x (seq_len, 16)
+  │
+  ├─ W_Q1 ──► Q1 (seq_len, 4) ─┐
+  ├─ W_K1 ──► K1 (seq_len, 4)  ├─► Attention ──► head1 (seq_len, 4)
+  ├─ W_V1 ──► V1 (seq_len, 4) ─┘
+  │
+  ├─ W_Q2 ──► Q2 (seq_len, 4) ─┐
+  ├─ W_K2 ──► K2 (seq_len, 4)  ├─► Attention ──► head2 (seq_len, 4)
+  ├─ W_V2 ──► V2 (seq_len, 4) ─┘
+  │
+  ├─ ... (heads 3, 4)
+  │
+  └─► Concat(head1..4) = (seq_len, 16) ──► W_O ──► output (seq_len, 16)
+</code></pre></div>
+
+<p>Each head operates in a smaller subspace (<img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_k%20%3D%20d_%7Bmodel%7D%20%2F%20h" />), so the total computation cost is the same as a single full-dimension attention.</p>
+<p>In microgpt.py, this was the loop over heads with slice indexing:</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># From microgpt.py - the head loop</span>
+<span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_head</span><span class="p">):</span>
+    <span class="n">hs</span> <span class="o">=</span> <span class="n">h</span> <span class="o">*</span> <span class="n">head_dim</span>
+    <span class="n">q_h</span> <span class="o">=</span> <span class="n">q</span><span class="p">[</span><span class="n">hs</span><span class="p">:</span><span class="n">hs</span><span class="o">+</span><span class="n">head_dim</span><span class="p">]</span>
+    <span class="n">k_h</span> <span class="o">=</span> <span class="p">[</span><span class="n">ki</span><span class="p">[</span><span class="n">hs</span><span class="p">:</span><span class="n">hs</span><span class="o">+</span><span class="n">head_dim</span><span class="p">]</span> <span class="k">for</span> <span class="n">ki</span> <span class="ow">in</span> <span class="n">keys</span><span class="p">[</span><span class="n">li</span><span class="p">]]</span>
+    <span class="n">v_h</span> <span class="o">=</span> <span class="p">[</span><span class="n">vi</span><span class="p">[</span><span class="n">hs</span><span class="p">:</span><span class="n">hs</span><span class="o">+</span><span class="n">head_dim</span><span class="p">]</span> <span class="k">for</span> <span class="n">vi</span> <span class="ow">in</span> <span class="n">values</span><span class="p">[</span><span class="n">li</span><span class="p">]]</span>
+</code></pre></div>
+
+<p>In practice, the projections are done as a single matrix multiply and then reshaped. Here's a clean PyTorch implementation:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span> <span class="nn">torch.nn</span> <span class="k">as</span> <span class="nn">nn</span>
+
+<span class="k">class</span> <span class="nc">MultiHeadAttention</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">n_heads</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="k">assert</span> <span class="n">d_model</span> <span class="o">%</span> <span class="n">n_heads</span> <span class="o">==</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span> <span class="o">=</span> <span class="n">n_heads</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span> <span class="o">=</span> <span class="n">d_model</span> <span class="o">//</span> <span class="n">n_heads</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_Q</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_K</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_V</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_O</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">C</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span>  <span class="c1"># batch, seq_len, d_model</span>
+
+        <span class="c1"># Project and reshape: (B, T, C) -&gt; (B, n_heads, T, d_k)</span>
+        <span class="n">Q</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_Q</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">K</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_K</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">V</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_V</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+
+        <span class="c1"># Scaled dot-product attention per head</span>
+        <span class="n">scores</span> <span class="o">=</span> <span class="n">Q</span> <span class="o">@</span> <span class="n">K</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">mask</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">scores</span> <span class="o">=</span> <span class="n">scores</span><span class="o">.</span><span class="n">masked_fill</span><span class="p">(</span><span class="n">mask</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="s1">&#39;-inf&#39;</span><span class="p">))</span>
+        <span class="n">weights</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">scores</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">attn_out</span> <span class="o">=</span> <span class="n">weights</span> <span class="o">@</span> <span class="n">V</span>  <span class="c1"># (B, n_heads, T, d_k)</span>
+
+        <span class="c1"># Concat heads and project</span>
+        <span class="n">attn_out</span> <span class="o">=</span> <span class="n">attn_out</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">C</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_O</span><span class="p">(</span><span class="n">attn_out</span><span class="p">)</span>
+</code></pre></div>
+
+<p>The key insight: the <code>view</code> and <code>transpose</code> operations are free (just pointer math, no data movement). A single <code>nn.Linear(d_model, d_model)</code> produces all head projections at once, and the reshape splits them into heads. This is how every production transformer does it.</p>
+<p>Let's verify it works:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
+<span class="n">mha</span> <span class="o">=</span> <span class="n">MultiHeadAttention</span><span class="p">(</span><span class="n">d_model</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">n_heads</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">16</span><span class="p">)</span>  <span class="c1"># batch=2, seq_len=8, d_model=16</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">mha</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Input shape:  </span><span class="si">{</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Output shape: </span><span class="si">{</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="c1"># Input shape:  torch.Size([2, 8, 16])</span>
+<span class="c1"># Output shape: torch.Size([2, 8, 16])</span>
+</code></pre></div>
+
+<p><strong>What do different heads learn?</strong> Research shows that heads tend to specialize. In trained models, some heads attend to the previous token, some to syntactic structures (subject-verb pairs), others to positional patterns. Removing certain heads barely affects performance; removing others is catastrophic. This emergent specialization is why multi-head works better than single-head despite using the same total compute.</p>
+<p><strong>When is this used?</strong> Every transformer model since 2017. This is the standard. The variants that follow are all modifications of this core structure.</p>
+<h2>Causal (Masked) Attention: No Peeking</h2>
+<p>In language models, a token at position $i$ should only attend to tokens at positions <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cleq%20i" />. You can't let the model see future tokens during training, or it'll just copy the answer instead of learning to predict.</p>
+<p>The fix is a causal mask: set the upper-right triangle of the attention score matrix to <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20-%5Cinfty" /> before softmax. Since <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20e%5E%7B-%5Cinfty%7D%20%3D%200" />, those positions get zero weight.</p>
+<div class="codehilite"><pre><span></span><code><span class="n">Attention</span><span class="w"> </span><span class="n">scores</span><span class="w"> </span><span class="n">before</span><span class="w"> </span><span class="nf">masking </span><span class="p">(</span><span class="m">4</span><span class="w"> </span><span class="n">tokens</span><span class="p">)</span><span class="o">:</span>
+
+<span class="w">         </span><span class="n">key0</span><span class="w">   </span><span class="n">key1</span><span class="w">   </span><span class="n">key2</span><span class="w">   </span><span class="n">key3</span>
+<span class="n">query0</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="m">0.5</span><span class="w">    </span><span class="o">-</span>∞<span class="w">     </span><span class="o">-</span>∞<span class="w">     </span><span class="o">-</span>∞<span class="w">  </span><span class="p">]</span><span class="w">     </span><span class="o">&lt;-</span><span class="w"> </span><span class="n">can</span><span class="w"> </span><span class="n">only</span><span class="w"> </span><span class="n">see</span><span class="w"> </span><span class="n">itself</span>
+<span class="n">query1</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="m">0.3</span><span class="w">    </span><span class="m">0.8</span><span class="w">    </span><span class="o">-</span>∞<span class="w">     </span><span class="o">-</span>∞<span class="w">  </span><span class="p">]</span><span class="w">     </span><span class="o">&lt;-</span><span class="w"> </span><span class="n">sees</span><span class="w"> </span><span class="n">positions</span><span class="w"> </span><span class="m">0-1</span>
+<span class="n">query2</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="m">0.1</span><span class="w">    </span><span class="m">0.4</span><span class="w">    </span><span class="m">0.6</span><span class="w">    </span><span class="o">-</span>∞<span class="w">  </span><span class="p">]</span><span class="w">     </span><span class="o">&lt;-</span><span class="w"> </span><span class="n">sees</span><span class="w"> </span><span class="n">positions</span><span class="w"> </span><span class="m">0-2</span>
+<span class="n">query3</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="m">0.2</span><span class="w">    </span><span class="m">0.3</span><span class="w">    </span><span class="m">0.1</span><span class="w">    </span><span class="m">0.9</span><span class="w"> </span><span class="p">]</span><span class="w">     </span><span class="o">&lt;-</span><span class="w"> </span><span class="n">sees</span><span class="w"> </span><span class="n">all</span><span class="w"> </span><span class="n">positions</span>
+
+<span class="n">After</span><span class="w"> </span><span class="n">softmax</span><span class="p">,</span><span class="w"> </span><span class="n">each</span><span class="w"> </span><span class="n">row</span><span class="w"> </span><span class="n">sums</span><span class="w"> </span><span class="n">to</span><span class="w"> </span><span class="m">1.0</span><span class="w"> </span><span class="n">over</span><span class="w"> </span><span class="n">visible</span><span class="w"> </span><span class="n">positions</span><span class="w"> </span><span class="n">only.</span>
+</code></pre></div>
+
+<p>The math is the same as before, with a mask added:</p>
+<p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Ctext%7BCausalAttention%7D%28Q%2C%20K%2C%20V%29%20%3D%20%5Ctext%7Bsoftmax%7D%5Cleft%28%5Cfrac%7BQK%5ET%7D%7B%5Csqrt%7Bd_k%7D%7D%20%2B%20M%5Cright%29V" /></p>
+<p>where <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20M_%7Bij%7D%20%3D%200" /> if <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20i%20%5Cgeq%20j" /> (allowed), and <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20M_%7Bij%7D%20%3D%20-%5Cinfty" /> if $i &lt; j$ (blocked).</p>
+<p>The implementation is just adding the mask to our existing code:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="nf">causal_attention</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">V</span><span class="p">):</span>
+    <span class="n">d_k</span> <span class="o">=</span> <span class="n">Q</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">T</span> <span class="o">=</span> <span class="n">Q</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">)</span>
+    <span class="n">scores</span> <span class="o">=</span> <span class="n">Q</span> <span class="o">@</span> <span class="n">K</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">d_k</span><span class="p">)</span>
+
+    <span class="c1"># Create causal mask: lower triangle = True, upper = False</span>
+    <span class="n">mask</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tril</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bool</span><span class="p">))</span>
+    <span class="n">scores</span> <span class="o">=</span> <span class="n">scores</span><span class="o">.</span><span class="n">masked_fill</span><span class="p">(</span><span class="o">~</span><span class="n">mask</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="s1">&#39;-inf&#39;</span><span class="p">))</span>
+
+    <span class="n">weights</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">scores</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">weights</span> <span class="o">@</span> <span class="n">V</span>
+</code></pre></div>
+
+<p>Let's see the mask in action:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
+<span class="n">T</span><span class="p">,</span> <span class="n">d_k</span> <span class="o">=</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">8</span>
+<span class="n">Q</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">d_k</span><span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">d_k</span><span class="p">)</span>
+<span class="n">V</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">d_k</span><span class="p">)</span>
+
+<span class="n">d_k_val</span> <span class="o">=</span> <span class="n">Q</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">scores</span> <span class="o">=</span> <span class="n">Q</span> <span class="o">@</span> <span class="n">K</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">d_k_val</span><span class="p">)</span>
+<span class="n">mask</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tril</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bool</span><span class="p">))</span>
+<span class="n">scores_masked</span> <span class="o">=</span> <span class="n">scores</span><span class="o">.</span><span class="n">masked_fill</span><span class="p">(</span><span class="o">~</span><span class="n">mask</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="s1">&#39;-inf&#39;</span><span class="p">))</span>
+<span class="n">weights</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">scores_masked</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Attention weights (causal):&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">weights</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="mi">3</span><span class="p">))</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code>Attention weights (causal):
+[[1.    0.    0.    0.   ]
+ [0.059 0.941 0.    0.   ]
+ [0.211 0.418 0.371 0.   ]
+ [0.193 0.18  0.195 0.432]]
+</code></pre></div>
+
+<p>Row 0 puts all weight on position 0 (only option). Row 1 heavily favors position 1 (0.941) over position 0 (0.059). By row 3, the weights spread across all four positions, with position 3 getting the largest share. The upper triangle is all zeros.</p>
+<p>In microgpt.py, causal masking was implicit. Because it processed one token at a time and only stored past keys/values in the KV cache, the model could never attend to future positions. The explicit mask approach is what you use during training, when the full sequence is processed in parallel.</p>
+<p><strong>When is this used?</strong> Every autoregressive language model (GPT, Llama, Claude, Mistral, Gemini). If it generates text left-to-right, it uses causal masking.</p>
+<h2>Cross-Attention: Connecting Two Sequences</h2>
+<p>The original transformer was built for translation. You have an input sentence in French and want to produce output in English. The encoder processes the French input; the decoder generates the English output. Cross-attention is how the decoder "looks at" the encoder's representation.</p>
+<p>The math is identical to self-attention, except Q comes from the decoder and K, V come from the encoder:</p>
+<p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Ctext%7BCrossAttention%7D%20%3D%20%5Ctext%7Bsoftmax%7D%5Cleft%28%5Cfrac%7BQ_%7Bdec%7D%20K_%7Benc%7D%5ET%7D%7B%5Csqrt%7Bd_k%7D%7D%5Cright%29%20V_%7Benc%7D" /></p>
+<div class="codehilite"><pre><span></span><code><span class="n">Encoder</span><span class="w"> </span><span class="nf">output </span><span class="p">(</span><span class="n">French</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="n">src_len</span><span class="p">,</span><span class="w"> </span><span class="n">d_model</span><span class="p">)</span><span class="w">  </span><span class="o">&lt;-</span><span class="w"> </span><span class="s">&quot;Bonjour le monde&quot;</span>
+<span class="n">Decoder</span><span class="w"> </span><span class="nf">state </span><span class="p">(</span><span class="n">English</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="n">tgt_len</span><span class="p">,</span><span class="w"> </span><span class="n">d_model</span><span class="p">)</span><span class="w">  </span><span class="o">&lt;-</span><span class="w"> </span><span class="s">&quot;Hello&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">so</span><span class="w"> </span><span class="n">far</span><span class="p">)</span>
+
+<span class="n">Q</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">decoder_state</span><span class="w"> </span><span class="o">@</span><span class="w"> </span><span class="n">W_Q</span><span class="w">    </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">(</span><span class="n">tgt_len</span><span class="p">,</span><span class="w"> </span><span class="n">d_k</span><span class="p">)</span><span class="w">     </span><span class="o">&lt;-</span><span class="w"> </span><span class="n">decoder</span><span class="w"> </span><span class="n">asks</span><span class="w"> </span><span class="n">questions</span>
+<span class="n">K</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">encoder_output</span><span class="w"> </span><span class="o">@</span><span class="w"> </span><span class="n">W_K</span><span class="w">   </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">(</span><span class="n">src_len</span><span class="p">,</span><span class="w"> </span><span class="n">d_k</span><span class="p">)</span><span class="w">      </span><span class="o">&lt;-</span><span class="w"> </span><span class="n">encoder</span><span class="w"> </span><span class="n">provides</span><span class="w"> </span><span class="n">keys</span>
+<span class="n">V</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">encoder_output</span><span class="w"> </span><span class="o">@</span><span class="w"> </span><span class="n">W_V</span><span class="w">   </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">(</span><span class="n">src_len</span><span class="p">,</span><span class="w"> </span><span class="n">d_k</span><span class="p">)</span><span class="w">      </span><span class="o">&lt;-</span><span class="w"> </span><span class="n">encoder</span><span class="w"> </span><span class="n">provides</span><span class="w"> </span><span class="n">values</span>
+
+<span class="n">scores</span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="n">tgt_len</span><span class="p">,</span><span class="w"> </span><span class="n">src_len</span><span class="p">)</span><span class="w">  </span><span class="o">&lt;-</span><span class="w"> </span><span class="n">each</span><span class="w"> </span><span class="n">decoder</span><span class="w"> </span><span class="n">position</span><span class="w"> </span><span class="n">scores</span><span class="w"> </span><span class="n">every</span><span class="w"> </span><span class="n">encoder</span><span class="w"> </span><span class="n">position</span>
+<span class="n">output</span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="n">tgt_len</span><span class="p">,</span><span class="w"> </span><span class="n">d_k</span><span class="p">)</span><span class="w">      </span><span class="o">&lt;-</span><span class="w"> </span><span class="n">decoder</span><span class="w"> </span><span class="n">gets</span><span class="w"> </span><span class="n">encoder</span><span class="o">-</span><span class="n">informed</span><span class="w"> </span><span class="n">representations</span>
+</code></pre></div>
+
+<p>Here's the implementation. It's the same <code>MultiHeadAttention</code> class, but called with different inputs for Q vs. K/V:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">class</span> <span class="nc">CrossAttention</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">n_heads</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="k">assert</span> <span class="n">d_model</span> <span class="o">%</span> <span class="n">n_heads</span> <span class="o">==</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span> <span class="o">=</span> <span class="n">n_heads</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span> <span class="o">=</span> <span class="n">d_model</span> <span class="o">//</span> <span class="n">n_heads</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_Q</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_K</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_V</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_O</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">decoder_state</span><span class="p">,</span> <span class="n">encoder_output</span><span class="p">):</span>
+        <span class="n">B</span><span class="p">,</span> <span class="n">T_dec</span><span class="p">,</span> <span class="n">C</span> <span class="o">=</span> <span class="n">decoder_state</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">T_enc</span> <span class="o">=</span> <span class="n">encoder_output</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="n">Q</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_Q</span><span class="p">(</span><span class="n">decoder_state</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T_dec</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">K</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_K</span><span class="p">(</span><span class="n">encoder_output</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T_enc</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">V</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_V</span><span class="p">(</span><span class="n">encoder_output</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T_enc</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+
+        <span class="n">scores</span> <span class="o">=</span> <span class="n">Q</span> <span class="o">@</span> <span class="n">K</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">)</span>
+        <span class="n">weights</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">scores</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">attn_out</span> <span class="o">=</span> <span class="n">weights</span> <span class="o">@</span> <span class="n">V</span>
+
+        <span class="n">attn_out</span> <span class="o">=</span> <span class="n">attn_out</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T_dec</span><span class="p">,</span> <span class="n">C</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_O</span><span class="p">(</span><span class="n">attn_out</span><span class="p">)</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code><span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
+<span class="n">cross_attn</span> <span class="o">=</span> <span class="n">CrossAttention</span><span class="p">(</span><span class="n">d_model</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">n_heads</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+<span class="n">enc_out</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">16</span><span class="p">)</span>   <span class="c1"># 10 source tokens</span>
+<span class="n">dec_state</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">16</span><span class="p">)</span>  <span class="c1"># 6 target tokens so far</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">cross_attn</span><span class="p">(</span><span class="n">dec_state</span><span class="p">,</span> <span class="n">enc_out</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Decoder queries: </span><span class="si">{</span><span class="n">dec_state</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Encoder context: </span><span class="si">{</span><span class="n">enc_out</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Output shape:    </span><span class="si">{</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="c1"># Decoder queries: torch.Size([2, 6, 16])</span>
+<span class="c1"># Encoder context: torch.Size([2, 10, 16])</span>
+<span class="c1"># Output shape:    torch.Size([2, 6, 16])</span>
+</code></pre></div>
+
+<p>Notice there's no causal mask here. Each decoder position should be able to attend to any encoder position. The word "monde" might be most relevant for generating "world" regardless of position.</p>
+<p><strong>When is this used?</strong> Encoder-decoder models: the original Transformer, T5, BART, Whisper (speech-to-text), and vision-language models where the "encoder" is an image encoder and the "decoder" generates text. GPT-style decoder-only models don't use cross-attention at all. They threw out the encoder and replaced cross-attention with just longer context windows.</p>
+<h2>Multi-Query Attention: One KV Head for All</h2>
+<p>Here's where we move from the 2017 paper to modern efficiency optimizations. Multi-Query Attention (MQA), introduced by <a href="https://arxiv.org/abs/1911.02150">Shazeer (2019)</a>, makes a simple but effective change: instead of giving each head its own K and V projections, share a single K and single V across all heads. Each head still gets its own Q.</p>
+<div class="codehilite"><pre><span></span><code><span class="n">Standard</span><span class="w"> </span><span class="n">Multi</span><span class="o">-</span><span class="nf">Head </span><span class="p">(</span><span class="n">n_heads</span><span class="o">=</span><span class="m">8</span><span class="p">,</span><span class="w"> </span><span class="n">d_model</span><span class="o">=</span><span class="m">64</span><span class="p">,</span><span class="w"> </span><span class="n">d_k</span><span class="o">=</span><span class="m">8</span><span class="p">)</span><span class="o">:</span>
+<span class="w">  </span><span class="n">Q</span><span class="o">:</span><span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="n">heads</span><span class="p">,</span><span class="w"> </span><span class="n">each</span><span class="w"> </span><span class="n">d_k</span><span class="o">=</span><span class="m">8</span><span class="w">  </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">KV</span><span class="w"> </span><span class="n">cache</span><span class="w"> </span><span class="n">per</span><span class="w"> </span><span class="n">token</span><span class="o">:</span><span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">64</span><span class="w"> </span><span class="n">floats</span>
+<span class="w">  </span><span class="n">K</span><span class="o">:</span><span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="n">heads</span><span class="p">,</span><span class="w"> </span><span class="n">each</span><span class="w"> </span><span class="n">d_k</span><span class="o">=</span><span class="m">8</span><span class="w">  </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">KV</span><span class="w"> </span><span class="n">cache</span><span class="w"> </span><span class="n">per</span><span class="w"> </span><span class="n">token</span><span class="o">:</span><span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">64</span><span class="w"> </span><span class="n">floats</span>
+<span class="w">  </span><span class="n">V</span><span class="o">:</span><span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="n">heads</span><span class="p">,</span><span class="w"> </span><span class="n">each</span><span class="w"> </span><span class="n">d_k</span><span class="o">=</span><span class="m">8</span><span class="w">  </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">KV</span><span class="w"> </span><span class="n">cache</span><span class="w"> </span><span class="n">per</span><span class="w"> </span><span class="n">token</span><span class="o">:</span><span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">64</span><span class="w"> </span><span class="n">floats</span>
+
+<span class="n">Multi</span><span class="o">-</span><span class="nf">Query </span><span class="p">(</span><span class="n">n_heads</span><span class="o">=</span><span class="m">8</span><span class="p">,</span><span class="w"> </span><span class="n">d_model</span><span class="o">=</span><span class="m">64</span><span class="p">,</span><span class="w"> </span><span class="n">d_k</span><span class="o">=</span><span class="m">8</span><span class="p">)</span><span class="o">:</span>
+<span class="w">  </span><span class="n">Q</span><span class="o">:</span><span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="n">heads</span><span class="p">,</span><span class="w"> </span><span class="n">each</span><span class="w"> </span><span class="n">d_k</span><span class="o">=</span><span class="m">8</span><span class="w">  </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">same</span><span class="w"> </span><span class="n">as</span><span class="w"> </span><span class="n">MHA</span>
+<span class="w">  </span><span class="n">K</span><span class="o">:</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="n">head</span><span class="p">,</span><span class="w">  </span><span class="n">d_k</span><span class="o">=</span><span class="m">8</span><span class="w">       </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">KV</span><span class="w"> </span><span class="n">cache</span><span class="w"> </span><span class="n">per</span><span class="w"> </span><span class="n">token</span><span class="o">:</span><span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="n">floats</span><span class="w">  </span><span class="o">&lt;-</span><span class="w"> </span><span class="n">shared</span>
+<span class="w">  </span><span class="n">V</span><span class="o">:</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="n">head</span><span class="p">,</span><span class="w">  </span><span class="n">d_k</span><span class="o">=</span><span class="m">8</span><span class="w">       </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">KV</span><span class="w"> </span><span class="n">cache</span><span class="w"> </span><span class="n">per</span><span class="w"> </span><span class="n">token</span><span class="o">:</span><span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="n">floats</span><span class="w">  </span><span class="o">&lt;-</span><span class="w"> </span><span class="n">shared</span>
+</code></pre></div>
+
+<p>Why does this matter? The KV cache. During inference, you store one K and one V vector per token per layer. With 32 layers and 32 heads at <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_k%20%3D%20128" />, that's $32 \times 32 \times 128 \times 2 = 262{,}144$ floats per token. For a 100k context, that's ~100GB in float32. MQA cuts the KV cache by the number of heads (32x in this case), bringing it down to ~3GB.</p>
+<div class="codehilite"><pre><span></span><code><span class="k">class</span> <span class="nc">MultiQueryAttention</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">n_heads</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="k">assert</span> <span class="n">d_model</span> <span class="o">%</span> <span class="n">n_heads</span> <span class="o">==</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span> <span class="o">=</span> <span class="n">n_heads</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span> <span class="o">=</span> <span class="n">d_model</span> <span class="o">//</span> <span class="n">n_heads</span>
+
+        <span class="c1"># Each head gets its own Q projection</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_Q</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="c1"># Single shared K and V projection</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_K</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_V</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_O</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">C</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span>
+
+        <span class="n">Q</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_Q</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="c1"># K, V: (B, 1, T, d_k) - broadcast across heads</span>
+        <span class="n">K</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_K</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">V</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_V</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+
+        <span class="n">scores</span> <span class="o">=</span> <span class="n">Q</span> <span class="o">@</span> <span class="n">K</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">mask</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">scores</span> <span class="o">=</span> <span class="n">scores</span><span class="o">.</span><span class="n">masked_fill</span><span class="p">(</span><span class="n">mask</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="s1">&#39;-inf&#39;</span><span class="p">))</span>
+        <span class="n">weights</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">scores</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">attn_out</span> <span class="o">=</span> <span class="n">weights</span> <span class="o">@</span> <span class="n">V</span>
+
+        <span class="n">attn_out</span> <span class="o">=</span> <span class="n">attn_out</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">C</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_O</span><span class="p">(</span><span class="n">attn_out</span><span class="p">)</span>
+</code></pre></div>
+
+<p>The K and V tensors have shape <code>(B, 1, T, d_k)</code> and PyTorch broadcasts them across all <code>n_heads</code> during the matrix multiplications. No data duplication, just pointer tricks.</p>
+<div class="codehilite"><pre><span></span><code><span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
+<span class="n">mqa</span> <span class="o">=</span> <span class="n">MultiQueryAttention</span><span class="p">(</span><span class="n">d_model</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">n_heads</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">64</span><span class="p">)</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">mqa</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Output shape: </span><span class="si">{</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="n">q_params</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="p">[</span><span class="n">mqa</span><span class="o">.</span><span class="n">W_Q</span><span class="o">.</span><span class="n">weight</span><span class="p">])</span>
+<span class="n">kv_params</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="p">[</span><span class="n">mqa</span><span class="o">.</span><span class="n">W_K</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">mqa</span><span class="o">.</span><span class="n">W_V</span><span class="o">.</span><span class="n">weight</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Q params: </span><span class="si">{</span><span class="n">q_params</span><span class="si">}</span><span class="s2">, KV params: </span><span class="si">{</span><span class="n">kv_params</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;KV reduction vs MHA: </span><span class="si">{</span><span class="mi">8</span><span class="si">}</span><span class="s2">x&quot;</span><span class="p">)</span>
+<span class="c1"># Output shape: torch.Size([2, 16, 64])</span>
+<span class="c1"># Q params: 4096, KV params: 1024</span>
+<span class="c1"># KV reduction vs MHA: 8x</span>
+</code></pre></div>
+
+<p>The trade-off: some quality loss, because all heads now share the same key-value representation. In practice the degradation is small (0.3-0.5% on benchmarks), but it's measurable.</p>
+<p><strong>When is this used?</strong> PaLM (2022), Falcon, StarCoder, and several inference-optimized models. It's most valuable when you're serving many concurrent requests and KV cache memory is the bottleneck. For training, the compute savings are minimal since there's no KV cache.</p>
+<h2>Grouped-Query Attention: The Middle Ground</h2>
+<p>GQA, introduced by <a href="https://arxiv.org/abs/2305.13245">Ainslie et al. (2023)</a>, splits the difference between standard multi-head attention and MQA. Instead of one shared KV head or one per query head, you use a small number of KV head groups.</p>
+<div class="codehilite"><pre><span></span><code>Multi-Head Attention (MHA):   8 query heads, 8 KV heads  (1:1)
+Grouped-Query Attention (GQA): 8 query heads, 2 KV heads  (4:1)
+Multi-Query Attention (MQA):  8 query heads, 1 KV head   (8:1)
+
+GQA with n_kv_heads=2, n_heads=8:
+
+  Queries:  [head0, head1, head2, head3] [head4, head5, head6, head7]
+               │       │      │      │      │       │      │      │
+  KV groups:  [────── kv0 ──────────]    [────── kv1 ──────────────]
+</code></pre></div>
+
+<p>Four query heads share one KV head. This gives you most of MQA's memory savings while keeping more representational capacity in the keys and values.</p>
+<div class="codehilite"><pre><span></span><code><span class="k">class</span> <span class="nc">GroupedQueryAttention</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">n_heads</span><span class="p">,</span> <span class="n">n_kv_heads</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="k">assert</span> <span class="n">d_model</span> <span class="o">%</span> <span class="n">n_heads</span> <span class="o">==</span> <span class="mi">0</span>
+        <span class="k">assert</span> <span class="n">n_heads</span> <span class="o">%</span> <span class="n">n_kv_heads</span> <span class="o">==</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span> <span class="o">=</span> <span class="n">n_heads</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">n_kv_heads</span> <span class="o">=</span> <span class="n">n_kv_heads</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span> <span class="o">=</span> <span class="n">d_model</span> <span class="o">//</span> <span class="n">n_heads</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">heads_per_group</span> <span class="o">=</span> <span class="n">n_heads</span> <span class="o">//</span> <span class="n">n_kv_heads</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_Q</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_K</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_kv_heads</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_V</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_kv_heads</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_O</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">C</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span>
+
+        <span class="n">Q</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_Q</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+
+        <span class="n">K</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_K</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_kv_heads</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">V</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_V</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_kv_heads</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+
+        <span class="c1"># Repeat KV heads to match query heads</span>
+        <span class="c1"># (B, n_kv_heads, T, d_k) -&gt; (B, n_heads, T, d_k)</span>
+        <span class="n">K</span> <span class="o">=</span> <span class="n">K</span><span class="o">.</span><span class="n">repeat_interleave</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">heads_per_group</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">V</span> <span class="o">=</span> <span class="n">V</span><span class="o">.</span><span class="n">repeat_interleave</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">heads_per_group</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="n">scores</span> <span class="o">=</span> <span class="n">Q</span> <span class="o">@</span> <span class="n">K</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">mask</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">scores</span> <span class="o">=</span> <span class="n">scores</span><span class="o">.</span><span class="n">masked_fill</span><span class="p">(</span><span class="n">mask</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="s1">&#39;-inf&#39;</span><span class="p">))</span>
+        <span class="n">weights</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">scores</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">attn_out</span> <span class="o">=</span> <span class="n">weights</span> <span class="o">@</span> <span class="n">V</span>
+
+        <span class="n">attn_out</span> <span class="o">=</span> <span class="n">attn_out</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">C</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_O</span><span class="p">(</span><span class="n">attn_out</span><span class="p">)</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code><span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
+<span class="n">gqa</span> <span class="o">=</span> <span class="n">GroupedQueryAttention</span><span class="p">(</span><span class="n">d_model</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">n_heads</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_kv_heads</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">64</span><span class="p">)</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">gqa</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Output shape: </span><span class="si">{</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="n">kv_params</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="p">[</span><span class="n">gqa</span><span class="o">.</span><span class="n">W_K</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">gqa</span><span class="o">.</span><span class="n">W_V</span><span class="o">.</span><span class="n">weight</span><span class="p">])</span>
+<span class="n">mha_kv_params</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="mi">64</span> <span class="o">*</span> <span class="mi">64</span>  <span class="c1"># what MHA would use</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;KV params: </span><span class="si">{</span><span class="n">kv_params</span><span class="si">}</span><span class="s2"> (vs </span><span class="si">{</span><span class="n">mha_kv_params</span><span class="si">}</span><span class="s2"> for MHA)&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;KV cache reduction: </span><span class="si">{</span><span class="mi">8</span><span class="w"> </span><span class="o">//</span><span class="w"> </span><span class="mi">2</span><span class="si">}</span><span class="s2">x vs MHA&quot;</span><span class="p">)</span>
+<span class="c1"># Output shape: torch.Size([2, 16, 64])</span>
+<span class="c1"># KV params: 2048 (vs 8192 for MHA)</span>
+<span class="c1"># KV cache reduction: 4x vs MHA</span>
+</code></pre></div>
+
+<p>The <code>repeat_interleave</code> call copies each KV head to match the query heads in its group. Alternatively, you can use <code>expand()</code> to avoid the copy and just broadcast, which is what optimized implementations do.</p>
+<p>Here's the comparison table:</p>
+<table>
+<thead>
+<tr>
+<th>Variant</th>
+<th>KV Heads (for 32 Q heads)</th>
+<th>KV Cache Size</th>
+<th>Quality</th>
+<th>Used In</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MHA</td>
+<td>32</td>
+<td>1x (baseline)</td>
+<td>Best</td>
+<td>GPT-2, GPT-3, BERT</td>
+</tr>
+<tr>
+<td>GQA</td>
+<td>4-8</td>
+<td>4-8x smaller</td>
+<td>~MHA</td>
+<td>Llama 2/3, Mistral, Gemma</td>
+</tr>
+<tr>
+<td>MQA</td>
+<td>1</td>
+<td>32x smaller</td>
+<td>Slightly worse</td>
+<td>PaLM, Falcon, StarCoder</td>
+</tr>
+</tbody>
+</table>
+<p><strong>When is this used?</strong> Llama 2 70B, Llama 3, Mistral 7B, Gemma, and most new models released after mid-2023. GQA has become the default choice because it gets ~95% of MQA's memory savings with nearly zero quality loss. The Llama 2 paper showed you can even take an MHA-trained model and "uptrain" it to GQA with a small fraction of the original training budget.</p>
+<h2>Sparse Attention: Breaking the Quadratic Wall</h2>
+<p>Standard attention computes scores between every pair of tokens. For a sequence of length $n$, that's <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20O%28n%5E2%29" /> operations and <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20O%28n%5E2%29" /> memory. Double the context length, quadruple the cost. At 100k tokens, the attention matrix alone is $100{,}000 \times 100{,}000 = 10$ billion entries per head per layer.</p>
+<p>Sparse attention patterns solve this by only computing a subset of the attention scores. The idea, introduced by <a href="https://arxiv.org/abs/1904.10509">Child et al. (2019)</a> in "Generating Long Sequences with Sparse Transformers", is that most attention weights are near zero anyway. If you can identify which ones matter, you can skip the rest.</p>
+<p>The most common sparse patterns:</p>
+<div class="codehilite"><pre><span></span><code>Full attention (standard):     Strided sparse:          Fixed sparse:
+  ████████                       █ █ █ █                  ████
+  ████████                       █ █ █ █                  ████
+  ████████                       █ █ █ █                  ████
+  ████████                       █ █ █ █                  ████
+  ████████                       ████████                      ████
+  ████████                       ████████                      ████
+  ████████                       ████████                      ████
+  ████████                       ████████                      ████
+
+  O(n^2)                         O(n√n)                   O(n√n)
+</code></pre></div>
+
+<p>In strided sparse, each token attends to every $s$-th token (stride) plus a local window. In fixed sparse, the sequence is split into blocks and tokens attend within their block plus to a set of "summary" positions.</p>
+<p>Here's a practical implementation of block-sparse attention:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="nf">block_sparse_attention</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">V</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="mi">4</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Each block of tokens attends to itself and adjacent blocks.</span>
+<span class="sd">    Q, K, V: (seq_len, d_k)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">T</span><span class="p">,</span> <span class="n">d_k</span> <span class="o">=</span> <span class="n">Q</span><span class="o">.</span><span class="n">shape</span>
+    <span class="n">n_blocks</span> <span class="o">=</span> <span class="p">(</span><span class="n">T</span> <span class="o">+</span> <span class="n">block_size</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">block_size</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">Q</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_blocks</span><span class="p">):</span>
+        <span class="n">q_start</span> <span class="o">=</span> <span class="n">i</span> <span class="o">*</span> <span class="n">block_size</span>
+        <span class="n">q_end</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">q_start</span> <span class="o">+</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">T</span><span class="p">)</span>
+        <span class="n">q_block</span> <span class="o">=</span> <span class="n">Q</span><span class="p">[</span><span class="n">q_start</span><span class="p">:</span><span class="n">q_end</span><span class="p">]</span>
+
+        <span class="c1"># Attend to current block and one block on each side</span>
+        <span class="n">k_start</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="p">(</span><span class="n">i</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">block_size</span><span class="p">)</span>
+        <span class="n">k_end</span> <span class="o">=</span> <span class="nb">min</span><span class="p">((</span><span class="n">i</span> <span class="o">+</span> <span class="mi">2</span><span class="p">)</span> <span class="o">*</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">T</span><span class="p">)</span>
+        <span class="n">k_block</span> <span class="o">=</span> <span class="n">K</span><span class="p">[</span><span class="n">k_start</span><span class="p">:</span><span class="n">k_end</span><span class="p">]</span>
+        <span class="n">v_block</span> <span class="o">=</span> <span class="n">V</span><span class="p">[</span><span class="n">k_start</span><span class="p">:</span><span class="n">k_end</span><span class="p">]</span>
+
+        <span class="n">scores</span> <span class="o">=</span> <span class="n">q_block</span> <span class="o">@</span> <span class="n">k_block</span><span class="o">.</span><span class="n">T</span> <span class="o">/</span> <span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">d_k</span><span class="p">)</span>
+        <span class="n">weights</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">scores</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">output</span><span class="p">[</span><span class="n">q_start</span><span class="p">:</span><span class="n">q_end</span><span class="p">]</span> <span class="o">=</span> <span class="n">weights</span> <span class="o">@</span> <span class="n">v_block</span>
+
+    <span class="k">return</span> <span class="n">output</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code><span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
+<span class="n">T</span><span class="p">,</span> <span class="n">d_k</span> <span class="o">=</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">8</span>
+<span class="n">Q</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">d_k</span><span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">d_k</span><span class="p">)</span>
+<span class="n">V</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">d_k</span><span class="p">)</span>
+
+<span class="n">out_full</span> <span class="o">=</span> <span class="n">scaled_dot_product_attention</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">V</span><span class="p">)</span>
+<span class="n">out_sparse</span> <span class="o">=</span> <span class="n">block_sparse_attention</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">V</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+
+<span class="c1"># Compare: sparse only sees local context</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Full attention output[0]:   </span><span class="si">{</span><span class="n">out_full</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="p">:</span><span class="mi">4</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Sparse attention output[0]: </span><span class="si">{</span><span class="n">out_sparse</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="p">:</span><span class="mi">4</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;(Different because sparse can only see block 0-1)&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>The complexity drops from <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20O%28n%5E2%29" /> to <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20O%28n%20%5Ccdot%20b%29" /> where $b$ is the effective neighborhood size (block size times number of neighbor blocks). For long sequences, this is the difference between "fits in memory" and "doesn't."</p>
+<p><strong>When is this used?</strong> BigBird (Google), Longformer (AI2), and various long-context models. In practice, pure sparse attention is less common in 2025-era LLMs. Most modern models use sliding window attention (next section) or combine sparse patterns with full attention in alternating layers.</p>
+<h2>Sliding Window Attention: Local Context, Global Reach</h2>
+<p>Sliding window attention is a specific, clean form of sparse attention. Each token attends to only a fixed window of $w$ tokens around it. Introduced in Longformer and popularized by <a href="https://arxiv.org/abs/2310.06825">Mistral 7B</a>.</p>
+<div class="codehilite"><pre><span></span><code><span class="k">Window</span><span class="w"> </span><span class="k">size</span><span class="w"> </span><span class="n">w</span><span class="o">=</span><span class="mi">3</span><span class="w"> </span><span class="p">(</span><span class="n">attend</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="n">tokens</span><span class="w"> </span><span class="n">back</span><span class="p">)</span><span class="err">:</span>
+
+<span class="nl">Token</span><span class="p">:</span><span class="w">    </span><span class="n">t0</span><span class="w">   </span><span class="n">t1</span><span class="w">   </span><span class="n">t2</span><span class="w">   </span><span class="n">t3</span><span class="w">   </span><span class="n">t4</span><span class="w">   </span><span class="n">t5</span><span class="w">   </span><span class="n">t6</span><span class="w">   </span><span class="n">t7</span>
+<span class="n">t0</span><span class="w"> </span><span class="nl">sees</span><span class="p">:</span><span class="w">  </span><span class="o">[</span><span class="n">t0</span><span class="o">]</span>
+<span class="n">t1</span><span class="w"> </span><span class="nl">sees</span><span class="p">:</span><span class="w">  </span><span class="o">[</span><span class="n">t0, t1</span><span class="o">]</span>
+<span class="n">t2</span><span class="w"> </span><span class="nl">sees</span><span class="p">:</span><span class="w">  </span><span class="o">[</span><span class="n">t0, t1, t2</span><span class="o">]</span>
+<span class="n">t3</span><span class="w"> </span><span class="nl">sees</span><span class="p">:</span><span class="w">  </span><span class="o">[</span><span class="n">t1, t2, t3</span><span class="o">]</span><span class="w">       </span><span class="o">&lt;-</span><span class="w"> </span><span class="k">window</span><span class="w"> </span><span class="n">slides</span>
+<span class="n">t4</span><span class="w"> </span><span class="nl">sees</span><span class="p">:</span><span class="w">  </span><span class="o">[</span><span class="n">t2, t3, t4</span><span class="o">]</span>
+<span class="n">t5</span><span class="w"> </span><span class="nl">sees</span><span class="p">:</span><span class="w">  </span><span class="o">[</span><span class="n">t3, t4, t5</span><span class="o">]</span>
+<span class="n">t6</span><span class="w"> </span><span class="nl">sees</span><span class="p">:</span><span class="w">  </span><span class="o">[</span><span class="n">t4, t5, t6</span><span class="o">]</span>
+<span class="n">t7</span><span class="w"> </span><span class="nl">sees</span><span class="p">:</span><span class="w">  </span><span class="o">[</span><span class="n">t5, t6, t7</span><span class="o">]</span>
+
+<span class="n">Attention</span><span class="w"> </span><span class="n">matrix</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">attends</span><span class="p">,</span><span class="w"> </span><span class="p">.</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">masked</span><span class="p">)</span><span class="err">:</span>
+<span class="w">     </span><span class="n">t0</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="n">t2</span><span class="w"> </span><span class="n">t3</span><span class="w"> </span><span class="n">t4</span><span class="w"> </span><span class="n">t5</span><span class="w"> </span><span class="n">t6</span><span class="w"> </span><span class="n">t7</span>
+<span class="n">t0</span><span class="w"> </span><span class="o">[</span><span class="n"> 1  .  .  .  .  .  .  . </span><span class="o">]</span>
+<span class="n">t1</span><span class="w"> </span><span class="o">[</span><span class="n"> 1  1  .  .  .  .  .  . </span><span class="o">]</span>
+<span class="n">t2</span><span class="w"> </span><span class="o">[</span><span class="n"> 1  1  1  .  .  .  .  . </span><span class="o">]</span>
+<span class="n">t3</span><span class="w"> </span><span class="o">[</span><span class="n"> .  1  1  1  .  .  .  . </span><span class="o">]</span>
+<span class="n">t4</span><span class="w"> </span><span class="o">[</span><span class="n"> .  .  1  1  1  .  .  . </span><span class="o">]</span>
+<span class="n">t5</span><span class="w"> </span><span class="o">[</span><span class="n"> .  .  .  1  1  1  .  . </span><span class="o">]</span>
+<span class="n">t6</span><span class="w"> </span><span class="o">[</span><span class="n"> .  .  .  .  1  1  1  . </span><span class="o">]</span>
+<span class="n">t7</span><span class="w"> </span><span class="o">[</span><span class="n"> .  .  .  .  .  1  1  1 </span><span class="o">]</span>
+</code></pre></div>
+
+<p>The math is the same, just a different mask. For a window of size $w$:</p>
+<p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20M_%7Bij%7D%20%3D%20%5Cbegin%7Bcases%7D%200%20%26%20%5Ctext%7Bif%20%7D%20i%20-%20w%20%3C%20j%20%5Cleq%20i%20%5C%5C%20-%5Cinfty%20%26%20%5Ctext%7Botherwise%7D%20%5Cend%7Bcases%7D" /></p>
+<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="nf">sliding_window_attention</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">V</span><span class="p">,</span> <span class="n">window_size</span><span class="o">=</span><span class="mi">3</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Q, K, V: (seq_len, d_k)</span>
+<span class="sd">    window_size: number of past tokens to attend to</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">T</span><span class="p">,</span> <span class="n">d_k</span> <span class="o">=</span> <span class="n">Q</span><span class="o">.</span><span class="n">shape</span>
+
+    <span class="c1"># Build sliding window mask</span>
+    <span class="n">mask</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bool</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">T</span><span class="p">):</span>
+        <span class="n">start</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">i</span> <span class="o">-</span> <span class="n">window_size</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">mask</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+
+    <span class="n">scores</span> <span class="o">=</span> <span class="n">Q</span> <span class="o">@</span> <span class="n">K</span><span class="o">.</span><span class="n">T</span> <span class="o">/</span> <span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">d_k</span><span class="p">)</span>
+    <span class="n">scores</span> <span class="o">=</span> <span class="n">scores</span><span class="o">.</span><span class="n">masked_fill</span><span class="p">(</span><span class="o">~</span><span class="n">mask</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="s1">&#39;-inf&#39;</span><span class="p">))</span>
+    <span class="n">weights</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">scores</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">weights</span> <span class="o">@</span> <span class="n">V</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code><span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
+<span class="n">T</span><span class="p">,</span> <span class="n">d_k</span> <span class="o">=</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">4</span>
+<span class="n">Q</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">d_k</span><span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">d_k</span><span class="p">)</span>
+<span class="n">V</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">d_k</span><span class="p">)</span>
+
+<span class="n">out</span> <span class="o">=</span> <span class="n">sliding_window_attention</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">V</span><span class="p">,</span> <span class="n">window_size</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Output shape: </span><span class="si">{</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="c1"># Show the mask</span>
+<span class="n">mask</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bool</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">T</span><span class="p">):</span>
+    <span class="n">start</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">i</span> <span class="o">-</span> <span class="mi">3</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">mask</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">Window mask:&quot;</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">mask</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="s2">&quot;1 &quot;</span> <span class="k">if</span> <span class="n">x</span> <span class="k">else</span> <span class="s2">&quot;. &quot;</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">row</span><span class="p">]))</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code>Output shape: torch.Size([8, 4])
+
+Window mask:
+1 . . . . . . .
+1 1 . . . . . .
+1 1 1 . . . . .
+. 1 1 1 . . . .
+. . 1 1 1 . . .
+. . . 1 1 1 . .
+. . . . 1 1 1 .
+. . . . . 1 1 1
+</code></pre></div>
+
+<p>"But wait, if token 7 can only see tokens 5-7 directly, how does it get information from token 0?" Through stacking layers. In a model with $L$ layers, information can propagate <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20L%20%5Ctimes%20w" /> positions. Mistral 7B uses <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20w%20%3D%204%7B%2C%7D096" /> with 32 layers, giving an effective receptive field of $32 \times 4{,}096 = 131{,}072$ tokens. That's how you get long context without quadratic scaling.</p>
+<p>The memory savings are real. Instead of a KV cache that grows linearly with sequence length, you only need to store the last $w$ key-value pairs per layer. Once a token slides out of the window, its KV entry gets recycled. This is done with a rolling buffer:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">class</span> <span class="nc">SlidingWindowKVCache</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">window_size</span><span class="p">,</span> <span class="n">n_layers</span><span class="p">,</span> <span class="n">d_k</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">w</span> <span class="o">=</span> <span class="n">window_size</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">keys</span> <span class="o">=</span> <span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">window_size</span><span class="p">,</span> <span class="n">d_k</span><span class="p">)</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_layers</span><span class="p">)]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">values</span> <span class="o">=</span> <span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">window_size</span><span class="p">,</span> <span class="n">d_k</span><span class="p">)</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_layers</span><span class="p">)]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pos</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">def</span> <span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">layer</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">):</span>
+        <span class="n">idx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pos</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">w</span>  <span class="c1"># circular buffer</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">keys</span><span class="p">[</span><span class="n">layer</span><span class="p">][</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">k</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="n">layer</span><span class="p">][</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">v</span>
+
+    <span class="k">def</span> <span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">layer</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">keys</span><span class="p">[</span><span class="n">layer</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="n">layer</span><span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">advance</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pos</span> <span class="o">+=</span> <span class="mi">1</span>
+</code></pre></div>
+
+<p>Fixed memory, regardless of how long the conversation gets.</p>
+<p><strong>When is this used?</strong> Mistral 7B was the model that popularized this approach. Mistral uses sliding window in some layers and full attention in others (alternating pattern). Mixtral follows the same strategy. Many newer models use a similar hybrid: full attention for some layers to maintain global context, sliding window for others to save memory.</p>
+<h2>Flash Attention: Same Math, Different Memory</h2>
+<p>Flash Attention, introduced by <a href="https://arxiv.org/abs/2205.14135">Dao et al. (2022)</a>, is the most impactful attention optimization of the past few years. The key insight: standard attention is bottlenecked not by compute, but by memory bandwidth.</p>
+<p>Here's the problem. Standard attention materializes the full <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20n%20%5Ctimes%20n" /> attention matrix in GPU high-bandwidth memory (HBM):</p>
+<div class="codehilite"><pre><span></span><code><span class="n">Standard</span><span class="w"> </span><span class="n">attention</span><span class="w"> </span><span class="n">memory</span><span class="w"> </span><span class="n">flow</span><span class="o">:</span>
+
+<span class="mf">1.</span><span class="w"> </span><span class="n">Compute</span><span class="w"> </span><span class="n">S</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QK</span><span class="o">^</span><span class="n">T</span><span class="w">          </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">write</span><span class="w"> </span><span class="n">n</span><span class="err">×</span><span class="n">n</span><span class="w"> </span><span class="n">matrix</span><span class="w"> </span><span class="n">to</span><span class="w"> </span><span class="n">HBM</span><span class="w">     </span><span class="p">(</span><span class="n">SLOW</span><span class="p">)</span>
+<span class="mf">2.</span><span class="w"> </span><span class="n">Read</span><span class="w"> </span><span class="n">S</span><span class="p">,</span><span class="w"> </span><span class="n">compute</span><span class="w"> </span><span class="n">softmax</span><span class="w">   </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">read</span><span class="w"> </span><span class="n">n</span><span class="err">×</span><span class="n">n</span><span class="w"> </span><span class="n">from</span><span class="w"> </span><span class="n">HBM</span><span class="w">           </span><span class="p">(</span><span class="n">SLOW</span><span class="p">)</span>
+<span class="mf">3.</span><span class="w"> </span><span class="n">Write</span><span class="w"> </span><span class="n">softmax</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="n">P</span><span class="w">    </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">write</span><span class="w"> </span><span class="n">n</span><span class="err">×</span><span class="n">n</span><span class="w"> </span><span class="n">to</span><span class="w"> </span><span class="n">HBM</span><span class="w">             </span><span class="p">(</span><span class="n">SLOW</span><span class="p">)</span>
+<span class="mf">4.</span><span class="w"> </span><span class="n">Read</span><span class="w"> </span><span class="n">P</span><span class="p">,</span><span class="w"> </span><span class="n">compute</span><span class="w"> </span><span class="n">PV</span><span class="w">        </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">read</span><span class="w"> </span><span class="n">n</span><span class="err">×</span><span class="n">n</span><span class="w"> </span><span class="n">from</span><span class="w"> </span><span class="n">HBM</span><span class="w">            </span><span class="p">(</span><span class="n">SLOW</span><span class="p">)</span>
+
+<span class="n">Total</span><span class="w"> </span><span class="n">HBM</span><span class="w"> </span><span class="n">reads</span><span class="o">/</span><span class="n">writes</span><span class="o">:</span><span class="w"> </span><span class="n">O</span><span class="p">(</span><span class="n">n</span><span class="o">^</span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="n">each</span><span class="w"> </span><span class="n">step</span>
+</code></pre></div>
+
+<p>GPU SRAM (on-chip cache) is ~100x faster than HBM, but much smaller (20MB vs 40-80GB on an A100). Flash Attention restructures the computation to work in tiles that fit in SRAM, never materializing the full attention matrix:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">Flash</span><span class="w"> </span><span class="n">Attention</span><span class="w"> </span><span class="n">memory</span><span class="w"> </span><span class="n">flow</span><span class="o">:</span>
+
+<span class="n">For</span><span class="w"> </span><span class="n">each</span><span class="w"> </span><span class="n">tile</span><span class="w"> </span><span class="kr">of</span><span class="w"> </span><span class="n">Q</span><span class="w"> </span><span class="p">(</span><span class="n">fits</span><span class="w"> </span><span class="kr">in</span><span class="w"> </span><span class="n">SRAM</span><span class="p">)</span><span class="o">:</span>
+<span class="w">    </span><span class="n">For</span><span class="w"> </span><span class="n">each</span><span class="w"> </span><span class="n">tile</span><span class="w"> </span><span class="kr">of</span><span class="w"> </span><span class="n">K</span><span class="p">,</span><span class="w"> </span><span class="n">V</span><span class="w"> </span><span class="p">(</span><span class="n">fits</span><span class="w"> </span><span class="kr">in</span><span class="w"> </span><span class="n">SRAM</span><span class="p">)</span><span class="o">:</span>
+<span class="w">        </span><span class="mf">1.</span><span class="w"> </span><span class="n">Compute</span><span class="w"> </span><span class="n">tile</span><span class="w"> </span><span class="kr">of</span><span class="w"> </span><span class="n">QK</span><span class="o">^</span><span class="n">T</span><span class="w">     </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">stays</span><span class="w"> </span><span class="kr">in</span><span class="w"> </span><span class="n">SRAM</span><span class="w">        </span><span class="p">(</span><span class="n">FAST</span><span class="p">)</span>
+<span class="w">        </span><span class="mf">2.</span><span class="w"> </span><span class="n">Update</span><span class="w"> </span><span class="n">running</span><span class="w"> </span><span class="n">softmax</span><span class="w">   </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">stays</span><span class="w"> </span><span class="kr">in</span><span class="w"> </span><span class="n">SRAM</span><span class="w">         </span><span class="p">(</span><span class="n">FAST</span><span class="p">)</span>
+<span class="w">        </span><span class="mf">3.</span><span class="w"> </span><span class="n">Accumulate</span><span class="w"> </span><span class="n">tile</span><span class="w"> </span><span class="kr">of</span><span class="w"> </span><span class="n">PV</span><span class="w">    </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">stays</span><span class="w"> </span><span class="kr">in</span><span class="w"> </span><span class="n">SRAM</span><span class="w">         </span><span class="p">(</span><span class="n">FAST</span><span class="p">)</span>
+<span class="w">    </span><span class="n">Write</span><span class="w"> </span><span class="n">final</span><span class="w"> </span><span class="kr">output</span><span class="w"> </span><span class="n">tile</span><span class="w"> </span><span class="n">to</span><span class="w"> </span><span class="n">HBM</span><span class="w">                           </span><span class="p">(</span><span class="n">one</span><span class="w"> </span><span class="n">write</span><span class="p">)</span>
+
+<span class="n">Total</span><span class="w"> </span><span class="n">HBM</span><span class="w"> </span><span class="n">reads</span><span class="o">/</span><span class="n">writes</span><span class="o">:</span><span class="w"> </span><span class="n">O</span><span class="p">(</span><span class="n">n</span><span class="o">^</span><span class="mi">2</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">SRAM_size</span><span class="p">)</span>
+</code></pre></div>
+
+<p>The math is identical to standard attention. Same inputs, same outputs, same gradients. The trick is an online softmax algorithm that processes the attention matrix in tiles without needing the full matrix at once.</p>
+<p>The online softmax works like this. For standard softmax, you need the max over all elements (for numerical stability) before computing anything. The tiled version keeps a running max and a running sum, correcting for new tiles as they arrive:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="nf">online_softmax_demo</span><span class="p">(</span><span class="n">scores_list</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Process softmax in chunks, maintaining running statistics.</span>
+<span class="sd">    scores_list: list of score chunks (simulating tiles)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">running_max</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="s1">&#39;-inf&#39;</span><span class="p">)</span>
+    <span class="n">running_sum</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">weighted_values</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">chunk_scores</span> <span class="ow">in</span> <span class="n">scores_list</span><span class="p">:</span>
+        <span class="c1"># New max across this chunk</span>
+        <span class="n">chunk_max</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">chunk_scores</span><span class="p">)</span>
+        <span class="n">new_max</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">running_max</span><span class="p">,</span> <span class="n">chunk_max</span><span class="p">)</span>
+
+        <span class="c1"># Correction factor for previous sum</span>
+        <span class="n">correction</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">running_max</span> <span class="o">-</span> <span class="n">new_max</span><span class="p">)</span> <span class="k">if</span> <span class="n">running_max</span> <span class="o">!=</span> <span class="nb">float</span><span class="p">(</span><span class="s1">&#39;-inf&#39;</span><span class="p">)</span> <span class="k">else</span> <span class="mi">0</span>
+        <span class="n">running_sum</span> <span class="o">=</span> <span class="n">running_sum</span> <span class="o">*</span> <span class="n">correction</span>
+
+        <span class="c1"># Add this chunk&#39;s contribution</span>
+        <span class="n">chunk_exps</span> <span class="o">=</span> <span class="p">[</span><span class="n">math</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">s</span> <span class="o">-</span> <span class="n">new_max</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">chunk_scores</span><span class="p">]</span>
+        <span class="n">running_sum</span> <span class="o">+=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">chunk_exps</span><span class="p">)</span>
+        <span class="n">running_max</span> <span class="o">=</span> <span class="n">new_max</span>
+
+        <span class="n">weighted_values</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">chunk_exps</span><span class="p">,</span> <span class="n">new_max</span><span class="p">))</span>
+
+    <span class="c1"># Final softmax values</span>
+    <span class="n">all_weights</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">chunk_exps</span><span class="p">,</span> <span class="n">chunk_max</span> <span class="ow">in</span> <span class="n">weighted_values</span><span class="p">:</span>
+        <span class="n">correction</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">chunk_max</span> <span class="o">-</span> <span class="n">running_max</span><span class="p">)</span>
+        <span class="n">all_weights</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="n">e</span> <span class="o">*</span> <span class="n">correction</span> <span class="o">/</span> <span class="n">running_sum</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">chunk_exps</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">all_weights</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code><span class="c1"># Verify: online softmax matches standard softmax</span>
+<span class="n">scores</span> <span class="o">=</span> <span class="p">[</span><span class="mf">1.2</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.3</span><span class="p">,</span> <span class="mf">2.1</span><span class="p">,</span> <span class="mf">0.8</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">,</span> <span class="mf">1.5</span><span class="p">]</span>
+
+<span class="c1"># Standard softmax</span>
+<span class="n">max_s</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">scores</span><span class="p">)</span>
+<span class="n">exps</span> <span class="o">=</span> <span class="p">[</span><span class="n">math</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">s</span> <span class="o">-</span> <span class="n">max_s</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">scores</span><span class="p">]</span>
+<span class="n">total</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">exps</span><span class="p">)</span>
+<span class="n">standard</span> <span class="o">=</span> <span class="p">[</span><span class="n">e</span> <span class="o">/</span> <span class="n">total</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">exps</span><span class="p">]</span>
+
+<span class="c1"># Online softmax (processed in chunks of 3)</span>
+<span class="n">chunks</span> <span class="o">=</span> <span class="p">[</span><span class="n">scores</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="mi">3</span><span class="p">],</span> <span class="n">scores</span><span class="p">[</span><span class="mi">3</span><span class="p">:</span><span class="mi">6</span><span class="p">],</span> <span class="n">scores</span><span class="p">[</span><span class="mi">6</span><span class="p">:</span><span class="mi">8</span><span class="p">]]</span>
+<span class="n">online</span> <span class="o">=</span> <span class="n">online_softmax_demo</span><span class="p">(</span><span class="n">chunks</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Standard:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">x</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">standard</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Online:  &quot;</span><span class="p">,</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">x</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">online</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Max diff: </span><span class="si">{</span><span class="nb">max</span><span class="p">(</span><span class="nb">abs</span><span class="p">(</span><span class="n">a</span><span class="o">-</span><span class="n">b</span><span class="p">)</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="n">b</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="nb">zip</span><span class="p">(</span><span class="n">standard</span><span class="p">,</span><span class="w"> </span><span class="n">online</span><span class="p">))</span><span class="si">:</span><span class="s2">.2e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code>Standard: [&#39;0.1489&#39;, &#39;0.0739&#39;, &#39;0.0332&#39;, &#39;0.3662&#39;, &#39;0.0998&#39;, &#39;0.0165&#39;, &#39;0.0605&#39;, &#39;0.2010&#39;]
+Online:   [&#39;0.1489&#39;, &#39;0.0739&#39;, &#39;0.0332&#39;, &#39;0.3662&#39;, &#39;0.0998&#39;, &#39;0.0165&#39;, &#39;0.0605&#39;, &#39;0.2010&#39;]
+Max diff: 6.94e-18
+</code></pre></div>
+
+<p>Exact same result, computed without ever storing all scores simultaneously.</p>
+<p>In practice, you don't implement Flash Attention yourself. It's a CUDA kernel that PyTorch exposes via <code>F.scaled_dot_product_attention</code>:</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># PyTorch &gt;= 2.0 uses Flash Attention automatically</span>
+<span class="c1"># when inputs are on CUDA and in float16/bfloat16</span>
+
+<span class="c1"># This dispatches to FlashAttention-2 on compatible hardware:</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">scaled_dot_product_attention</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">V</span><span class="p">,</span> <span class="n">is_causal</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="c1"># You can check which backend was used:</span>
+<span class="c1"># torch.backends.cuda.flash_sdp_enabled()</span>
+</code></pre></div>
+
+<p>The speedup numbers:</p>
+<table>
+<thead>
+<tr>
+<th>Sequence Length</th>
+<th>Standard Attention</th>
+<th>Flash Attention</th>
+<th>Speedup</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1,024</td>
+<td>1.0x</td>
+<td>1.3x</td>
+<td>1.3x</td>
+</tr>
+<tr>
+<td>4,096</td>
+<td>1.0x</td>
+<td>2.4x</td>
+<td>2.4x</td>
+</tr>
+<tr>
+<td>16,384</td>
+<td>OOM</td>
+<td>3.1x</td>
+<td>works</td>
+</tr>
+<tr>
+<td>65,536</td>
+<td>OOM</td>
+<td>3.8x</td>
+<td>works</td>
+</tr>
+</tbody>
+</table>
+<p>The longer the sequence, the bigger the win, because HBM bandwidth becomes more of a bottleneck relative to compute. Flash Attention 2 improved on the original by better partitioning work across GPU warps and reducing non-matmul operations.</p>
+<p><strong>When is this used?</strong> Basically everywhere in 2025-2026. PyTorch's <code>scaled_dot_product_attention</code> uses Flash Attention by default when available. Every major framework (vLLM, TGI, llama.cpp) uses it. If you're running inference or training on a modern GPU with sequences longer than a few hundred tokens, Flash Attention is what's running under the hood.</p>
+<h2>Putting It All Together: What Modern Models Actually Use</h2>
+<p>Let's map these attention variants to the models you're actually working with:</p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Attention Type</th>
+<th>KV Heads</th>
+<th>Context</th>
+<th>Window</th>
+<th>Flash</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GPT-2 (2019)</td>
+<td>MHA</td>
+<td>12</td>
+<td>1,024</td>
+<td>Full</td>
+<td>No</td>
+</tr>
+<tr>
+<td>GPT-3 (2020)</td>
+<td>MHA</td>
+<td>96</td>
+<td>2,048</td>
+<td>Full</td>
+<td>No</td>
+</tr>
+<tr>
+<td>PaLM (2022)</td>
+<td>MQA</td>
+<td>1</td>
+<td>2,048</td>
+<td>Full</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Llama 1 (2023)</td>
+<td>MHA</td>
+<td>32</td>
+<td>2,048</td>
+<td>Full</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Llama 2 70B (2023)</td>
+<td>GQA</td>
+<td>8</td>
+<td>4,096</td>
+<td>Full</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Mistral 7B (2023)</td>
+<td>GQA</td>
+<td>8</td>
+<td>32,768</td>
+<td>4,096</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Llama 3 (2024)</td>
+<td>GQA</td>
+<td>8</td>
+<td>128,000</td>
+<td>Full</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Gemma 2 (2024)</td>
+<td>GQA + Sliding</td>
+<td>4-8</td>
+<td>8,192</td>
+<td>Alternating</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>DeepSeek V2 (2024)</td>
+<td>MLA</td>
+<td>1 (compressed)</td>
+<td>128,000</td>
+<td>Full</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<p>A few patterns to notice:</p>
+<p><strong>GQA won.</strong> After Llama 2 showed that GQA matches MHA quality with a fraction of the KV cache, everyone adopted it. The 8 KV heads number appears repeatedly because it's a sweet spot: enough capacity for quality, small enough for efficient serving.</p>
+<p><strong>Flash Attention is everywhere.</strong> It went from research paper to industry standard in about a year. Any model released after 2023 assumes Flash Attention is available.</p>
+<p><strong>Window attention is a practical choice.</strong> Mistral proved that you don't need full quadratic attention for every layer. Alternating full and windowed attention across layers gives you global reach (through stacking) with local efficiency. Gemma 2 followed the same idea.</p>
+<p><strong>Context lengths exploded.</strong> From GPT-2's 1,024 tokens to Llama 3's 128,000. This happened because of three compounding factors: Flash Attention making long sequences computationally feasible, GQA/MQA reducing KV cache memory, and techniques like RoPE (Rotary Position Embeddings) that generalize to unseen positions.</p>
+<h2>The Decision Tree</h2>
+<p>If you're building or fine-tuning a model and need to pick an attention variant, here's how to think about it:</p>
+<p><strong>Choosing KV head strategy:</strong>
+- Training a new model with &lt; 3B params? MHA is fine, the KV cache overhead is small.
+- Training a new model with &gt; 7B params? GQA with 4-8 KV heads. This is the industry default now.
+- Extremely memory-constrained inference (edge devices, massive batch sizes)? Consider MQA, but benchmark quality first.</p>
+<p><strong>Choosing attention pattern:</strong>
+- Context &lt; 8k tokens? Full attention. The quadratic cost is negligible at this scale.
+- Context 8k-32k? Full attention with Flash Attention. Still manageable.
+- Context &gt; 32k? Consider alternating full and sliding window layers (the Mistral pattern).
+- Context &gt; 128k? You'll likely need a combination of techniques: sliding window, GQA, Flash Attention, and possibly some form of sparse attention or attention sinks.</p>
+<p><strong>The implementation choice:</strong>
+- If using PyTorch: <code>F.scaled_dot_product_attention</code> handles the kernel dispatch for you (Flash Attention, memory-efficient attention, or math fallback based on hardware and dtype).
+- If serving with vLLM or TGI: they handle PagedAttention for KV cache management automatically.
+- If implementing from scratch for learning: start with the naive version, understand it, then use the optimized library calls.</p>
+<h2>Beyond Attention: What's Coming</h2>
+<p>The attention mechanism has been the core of the transformer since 2017, and every model released since then uses some variant of it. But the design space keeps evolving.</p>
+<p>Multi-head Latent Attention (MLA), used in DeepSeek V2, compresses the KV cache into a learned low-rank latent space, getting even smaller than GQA. Linear attention variants like RWKV and Mamba replace the softmax attention entirely with recurrent-style computations that scale linearly with sequence length. These aren't mainstream yet for LLMs, but they're competitive on several benchmarks and have O(1) memory per token during inference.</p>
+<p>The 2017 paper asked if attention is all you need. Nine years later, the answer is nuanced: attention is definitely what you need, but which attention and how you compute it matters more than anyone expected. The Q, K, V math from the original paper is still there in every model. Everything built on top of it (multi-head, causal masking, GQA, Flash Attention, sliding windows) is the engineering that makes it work at scale. If you understand each layer of that stack, you can make informed decisions about which pieces to use and when. That's the whole point.</p>
+<hr />
+<p><em>Originally published on <a href="https://ai-terminal.net/deep-learning/llm/2026/02/28/attention-mechanisms/">AI Terminal</a>.</em></p>
+<p>Tags: gqa, mqa, attention, transformer, from-scratch</p>

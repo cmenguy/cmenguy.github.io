@@ -1,0 +1,55 @@
+<h1>Welcome to the AI Terminal</h1>
+<p>This blog is a space for going deep on AI/ML: the engineering, the research, and everything in between. If you're here, you probably care about how things actually work under the hood, not just the hype cycle.</p>
+<h2>Who Is This For</h2>
+<p>This is going to get geeky. If you're looking for high-level LinkedIn thought leadership about how "AI will change everything," you're in the wrong terminal.</p>
+<p>This blog is for <strong>technical people</strong>: engineers, researchers, and practitioners who want to understand the details. People who read papers, write training loops, debug CUDA kernels, and argue about attention mechanisms.</p>
+<p>Expect content that goes both wide and deep:</p>
+<ul>
+<li><strong>Engineering</strong>: building production ML systems, training infrastructure, serving at scale, the unglamorous plumbing that makes models actually work</li>
+<li><strong>Research</strong>: reading, implementing, and dissecting papers, because understanding the math matters when your gradient norms explode at 3 AM</li>
+<li><strong>The intersection</strong>: turning research ideas into real systems, and the hard trade-offs that come with it</li>
+</ul>
+<p>Whether you're a seasoned ML engineer or someone ramping up and wanting to go beyond the tutorials, there should be something here for you.</p>
+<h2>Written by a Human, Enhanced by LLM</h2>
+<p>Let's talk about how this blog gets written.</p>
+<p>Every post starts with me: my experience, my opinions, my mistakes. I use LLMs as a writing tool the same way I use them for code: to accelerate, to refine, to catch what I miss. But the ideas, the technical depth, and the perspective are mine.</p>
+<p>This is not LLM slop. You won't find generic "10 Things You Need to Know About Transformers" content here. If I'm writing about something, it's because I've actually built it, broken it, spent too many hours debugging it, or am simply interested and curious about it. <strong>Authenticity over polish.</strong></p>
+<p>The bar is simple: every post should teach you something you couldn't get from a quick ChatGPT prompt.</p>
+<h2>Code-First</h2>
+<p>I believe the best way to understand ML is to look at real code, run real commands, and work through real math. Posts here will be code-first: not pseudocode hand-waving, but actual implementations you can read, run, and learn from.</p>
+<p>Here's the kind of thing you'll see. A PyTorch implementation of scaled dot-product attention:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span> <span class="nn">torch.nn.functional</span> <span class="k">as</span> <span class="nn">F</span>
+
+<span class="k">def</span> <span class="nf">scaled_dot_product_attention</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">V</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Compute scaled dot-product attention.&quot;&quot;&quot;</span>
+    <span class="n">d_k</span> <span class="o">=</span> <span class="n">Q</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">scores</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">K</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">))</span> <span class="o">/</span> <span class="n">torch</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">d_k</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">mask</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">scores</span> <span class="o">=</span> <span class="n">scores</span><span class="o">.</span><span class="n">masked_fill</span><span class="p">(</span><span class="n">mask</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="s2">&quot;-inf&quot;</span><span class="p">))</span>
+    <span class="n">weights</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">scores</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="n">weights</span><span class="p">,</span> <span class="n">V</span><span class="p">),</span> <span class="n">weights</span>
+</code></pre></div>
+
+<p>Real training commands, not toy examples:</p>
+<div class="codehilite"><pre><span></span><code>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">4</span><span class="w"> </span>train.py<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--model_name_or_path<span class="w"> </span>meta-llama/Llama-3-8b<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--dataset<span class="w"> </span>my_dataset<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--learning_rate<span class="w"> </span>2e-5<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--num_train_epochs<span class="w"> </span><span class="m">3</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output_dir<span class="w"> </span>./checkpoints
+</code></pre></div>
+
+<p>And the math that makes it all work. The attention formula behind that code:</p>
+<p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Ctext%7BAttention%7D%28Q%2C%20K%2C%20V%29%20%3D%20%5Ctext%7Bsoftmax%7D%5Cleft%28%5Cfrac%7BQK%5ET%7D%7B%5Csqrt%7Bd_k%7D%7D%5Cright%29V" /></p>
+<p>The cross-entropy loss that drives language model training:</p>
+<p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Cmathcal%7BL%7D%20%3D%20-%5Csum_%7Bi%3D1%7D%5E%7BN%7D%20%5Csum_%7Bc%3D1%7D%5E%7BC%7D%20y_%7Bi%2Cc%7D%20%5Clog%28%5Chat%7By%7D_%7Bi%2Cc%7D%29" /></p>
+<p>Inline math works too: learning rate <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Calpha%20%3D%202%20%5Ctimes%2010%5E%7B-5%7D" />, batch size $B = 32$, gradient accumulation steps to simulate larger effective batches.</p>
+<p>Code, commands, and math. That's the language we'll be speaking here.</p>
+<h2>What's Coming</h2>
+<p>Topics in the pipeline include LoRA fine-tuning from scratch, KV cache optimization, building evaluation harnesses for LLMs, and deep-dives into recent papers. Stay tuned.</p>
+<hr />
+<p><em>Originally published on <a href="https://ai-terminal.net/meta/announcement/2025/12/15/welcome/">AI Terminal</a>.</em></p>
+<p>Tags: blog, jekyll</p>

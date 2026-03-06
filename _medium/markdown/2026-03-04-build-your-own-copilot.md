@@ -1,17 +1,14 @@
----
-layout: post
-title: "Build Your Own Copilot in Pure Python"
-date: 2026-03-04 10:00:00 -0800
-categories: [llm, ai-engineering, code-gen]
-tags: [copilot, code-completion, fill-in-the-middle, fine-tuning, lora, code-llm, nl2code, from-scratch]
-author: cmenguy
-colab_url: "https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-03-04-build-your-own-copilot.ipynb"
-colab_embed: false
-github_notebook: "https://github.com/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-03-04-build-your-own-copilot.ipynb"
-notebook_description: "A complete, runnable AI code completion tool: FIM inference, LSP-style server, and LoRA fine-tuning on a custom codebase."
+# Build Your Own Copilot in Pure Python
+
 ---
 
-In the [skills post](/llm/ai-engineering/agents/2026/02/05/skills-deep-dive/) I mentioned we'd been building agent skills at work, mostly for marketing ML workflows. One of those workflows is NL2Code: a user describes what they want in plain English ("build me a lookalike audience from this seed list using cosine similarity"), and the agent writes the Python code. It works surprisingly well for self-contained scripts. But it fell apart the moment we needed the generated code to fit into our existing codebase. The agent would write perfectly valid Python that imported libraries we don't use, called APIs that don't exist in our stack, and followed patterns that look nothing like the code we actually ship.
+**A complete, runnable AI code completion tool: FIM inference, LSP-style server, and LoRA fine-tuning on a custom codebase.**
+
+[Run in Google Colab](https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-03-04-build-your-own-copilot.ipynb) | [View on GitHub](https://github.com/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-03-04-build-your-own-copilot.ipynb)
+
+---
+
+In the [skills post](https://ai-terminal.net/llm/ai-engineering/agents/2026/02/05/skills-deep-dive/) I mentioned we'd been building agent skills at work, mostly for marketing ML workflows. One of those workflows is NL2Code: a user describes what they want in plain English ("build me a lookalike audience from this seed list using cosine similarity"), and the agent writes the Python code. It works surprisingly well for self-contained scripts. But it fell apart the moment we needed the generated code to fit into our existing codebase. The agent would write perfectly valid Python that imported libraries we don't use, called APIs that don't exist in our stack, and followed patterns that look nothing like the code we actually ship.
 
 That got me thinking about how tools like Copilot actually work. Not the product, but the machinery underneath: how do you take a general-purpose code model and make it write code that feels like it belongs in *your* repo? I spent a few weekends digging into the full pipeline, from how code completion models are structured, to how fill-in-the-middle works, to how you fine-tune on a specific codebase. This post is what came out of that: a working AI coding tool, built from scratch in Python, that you can point at your own code.
 
@@ -588,7 +585,7 @@ For a medium-sized repo (500 Python files), this generates roughly 1500 training
 
 ### The LoRA Fine-Tuning Loop
 
-If you read the [LoRA post](/llm/fine-tuning/2025/12/28/lora-deep-dive/), you know the mechanics. Here's the application to code completion. We're using `peft` and `trl` to keep it concise, but the underlying math is the same.
+If you read the [LoRA post](https://ai-terminal.net/llm/fine-tuning/2025/12/28/lora-deep-dive/), you know the mechanics. Here's the application to code completion. We're using `peft` and `trl` to keep it concise, but the underlying math is the same.
 
 ```python
 from peft import LoraConfig, get_peft_model
@@ -672,7 +669,7 @@ finetuned_model = PeftModel.from_pretrained(
 merged_model = finetuned_model.merge_and_unload()
 ```
 
-The `merge_and_unload()` call is important for production. During training, LoRA adds a side path to each targeted layer: the output is `base_output + lora_output`. At inference time, you can merge the LoRA weights directly into the base weights ($W = W_0 + BA$) and run the model as if it were never LoRA-trained. Same quality, zero overhead.
+The `merge_and_unload()` call is important for production. During training, LoRA adds a side path to each targeted layer: the output is `base_output + lora_output`. At inference time, you can merge the LoRA weights directly into the base weights (![equation](https://latex.codecogs.com/png.latex?\inline%20W%20%3D%20W_0%20%2B%20BA)) and run the model as if it were never LoRA-trained. Same quality, zero overhead.
 
 ### The Multi-Repo Problem: Adapters vs. Merging
 
@@ -956,3 +953,10 @@ Same base model, same LoRA setup, different data format. For the NL2Code agent, 
 The key takeaway from this whole exercise: there's no magic in Copilot. It's a code LLM with FIM training, a context-gathering layer, and (probably) fine-tuning on accepted completions. Each piece is understandable, buildable, and improvable. The competitive moat isn't the model architecture. It's the data flywheel: every accepted completion becomes a training signal that makes the next completion better. That's harder to replicate than any of the code in this post.
 
 Next up in part 2: an NL2Code agent that takes a plain-English description and generates a complete function or script that fits into your codebase. Same fine-tuning pipeline, different data format, very different evaluation problem. And in part 3, we'll flip the direction entirely: instead of writing new code, we'll build a system that reads existing code, finds bugs, and suggests fixes.
+
+
+---
+
+*Originally published on [AI Terminal](https://ai-terminal.net/llm/ai-engineering/code-gen/2026/03/04/build-your-own-copilot/).*
+
+Tags: lora, copilot, nl2code, code-llm, fine-tuning

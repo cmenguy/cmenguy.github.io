@@ -1,17 +1,14 @@
----
-layout: post
-title: "The Skill is the Unit of Reuse"
-date: 2026-02-05 10:00:00 -0800
-categories: [llm, ai-engineering, agents]
-tags: [skills, agents, claude-code, mistral-vibe, codex, agent-skills, composability, evaluation]
-author: cmenguy
-colab_url: "https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-02-05-skills-deep-dive.ipynb"
-colab_embed: false
-github_notebook: "https://github.com/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-02-05-skills-deep-dive.ipynb"
-notebook_description: "Hands-on examples of building, loading, and evaluating AI agent skills across Claude Code, Mistral Vibe, and the Claude API."
+# The Skill is the Unit of Reuse
+
 ---
 
-In the [last post](/llm/ai-engineering/agents/2026/01/28/agentic-protocols/) I talked about A2A, MCP, and where multi-agent systems break down. I ended with a teaser about the "single agent with skills" pattern being the sweet spot most teams should reach for. This post is the follow-through on that promise.
+**Hands-on examples of building, loading, and evaluating AI agent skills across Claude Code, Mistral Vibe, and the Claude API.**
+
+[Run in Google Colab](https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-02-05-skills-deep-dive.ipynb) | [View on GitHub](https://github.com/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-02-05-skills-deep-dive.ipynb)
+
+---
+
+In the [last post](https://ai-terminal.net/llm/ai-engineering/agents/2026/01/28/agentic-protocols/) I talked about A2A, MCP, and where multi-agent systems break down. I ended with a teaser about the "single agent with skills" pattern being the sweet spot most teams should reach for. This post is the follow-through on that promise.
 
 At work, we'd been running a multi-agent setup loosely inspired by A2A. Multiple agents, each with their own context, coordinating over internal APIs. It worked, mostly. But every time we wanted to add a new capability (a new type of analysis, a new data source) it meant spinning up a new service, defining new endpoints, and dealing with exactly the context fragmentation problems I'd been writing about.
 
@@ -638,3 +635,10 @@ This is a sketch, not production code. But the shape of the solution is clear: t
 Skills are the single-agent answer to the multi-agent question. For most teams, most of the time, a well-designed set of skills on a single capable model will outperform a constellation of specialized agents. Less complexity, less latency, better debugging, and critically, the ability for anyone on the team to read the skill file and understand what the AI is supposed to do.
 
 The tooling is converging, the spec is open, and the pattern works. What's missing is the evaluation layer, and I suspect that's where the next wave of investment will go. Right now we're in the "vibes-based testing" era of skills. The teams that move to rigorous, automated skill evaluation first will ship more reliably and iterate faster. The `evals.json` pattern is the seed of that future, and I'm watching it closely.
+
+
+---
+
+*Originally published on [AI Terminal](https://ai-terminal.net/llm/ai-engineering/agents/2026/02/05/skills-deep-dive/).*
+
+Tags: codex, skills, agents, evaluation, claude-code

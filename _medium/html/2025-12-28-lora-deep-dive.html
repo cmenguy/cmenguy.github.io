@@ -1,0 +1,595 @@
+<h1>LoRA From the Ground Up: The Math, the Matrices, and the Merge</h1>
+<hr />
+<p><strong>Hands-on LoRA implementation from scratch: building, training, merging, and inspecting low-rank adapters with PyTorch.</strong></p>
+<p><a href="https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/2025-12-28-lora-deep-dive.ipynb">Run in Google Colab</a> | <a href="https://github.com/cmenguy/cmenguy.github.io/blob/main/notebooks/2025-12-28-lora-deep-dive.ipynb">View on GitHub</a></p>
+<hr />
+<p>In my <a href="https://ai-terminal.net/llm/fine-tuning/2025/12/22/fine-tuning-llms-sft-dpo-rlhf/">last post</a>, I walked through SFT, DPO, and RLHF for fine-tuning LLMs. Throughout that entire post, LoRA kept showing up in every code example, every training config, every <code>LoraConfig(r=16, lora_alpha=32)</code> call. I used it the way most of us do: copy the config from a tutorial, set <code>r=16</code> because that's what everyone uses, set <code>lora_alpha</code> to double the rank because... reasons, and move on. The model trains, the loss goes down, the outputs improve. Ship it.</p>
+<p>But a few days ago I got into a discussion with a colleague about fine-tuning efficiency: how much memory we were actually saving with LoRA, whether we could push the rank lower without hurting quality, whether it even mattered which layers we targeted. I had opinions on all of this, but when I tried to back them up with anything beyond "it worked last time," I realized I was hand-waving. I knew <em>what</em> LoRA did at a high level (low-rank matrices, fewer parameters, memory efficient), but I couldn't actually explain <em>why</em> those specific numbers mattered. What does rank even mean in this context? Why does <code>lora_alpha</code> scale the way it does? What's actually happening to the weight matrices during training? I'd been treating LoRA like a black box with good defaults, and that bothered me.</p>
+<p>So I blocked out a weekend, pulled up the <a href="https://arxiv.org/abs/2106.09685">original paper</a>, and went through the math line by line. What follows is what I wish someone had explained to me before I started using LoRA in production.</p>
+<h2>The Problem LoRA Solves</h2>
+<p>Let's start with why LoRA exists. A model like Llama 3.1 8B has roughly 8 billion parameters. Full fine-tuning means updating all of them: every weight in every layer gets a gradient, an optimizer state, and a momentum term. For Adam, that's 3x the model size in memory just for the optimizer. On a Llama 8B in float32, that's:</p>
+<p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Ctext%7BMemory%7D_%7B%5Ctext%7Bfull%7D%7D%20%3D%208%5Ctext%7BB%7D%20%5Ctimes%204%5Ctext%7B%20bytes%7D%20%5Ctimes%203%20%3D%2096%5Ctext%7B%20GB%20%28optimizer%20alone%29%7D" /></p>
+<p>Add the model weights, gradients, and activations, and you're looking at needing multiple A100 80GB GPUs just for fine-tuning. For most teams, that's impractical.</p>
+<p>LoRA's insight: when you fine-tune a large model on a specific task, the weight updates don't use the full dimensionality of the weight matrices. The <em>change</em> in weights during fine-tuning is low-rank. It lies in a much smaller subspace than the original weights. So instead of updating a giant matrix, you can decompose the update into two small matrices and only train those.</p>
+<h2>The Core Idea: Low-Rank Decomposition</h2>
+<p>Here's the key equation. For a pretrained weight matrix <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20W_0%20%5Cin%20%5Cmathbb%7BR%7D%5E%7Bd%20%5Ctimes%20k%7D" />, LoRA constrains the update <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5CDelta%20W" /> to be a low-rank decomposition:</p>
+<p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20W%20%3D%20W_0%20%2B%20%5CDelta%20W%20%3D%20W_0%20%2B%20BA" /></p>
+<p>Where <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20B%20%5Cin%20%5Cmathbb%7BR%7D%5E%7Bd%20%5Ctimes%20r%7D" /> and <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20A%20%5Cin%20%5Cmathbb%7BR%7D%5E%7Br%20%5Ctimes%20k%7D" />, with rank <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20r%20%5Cll%20%5Cmin%28d%2C%20k%29" />.</p>
+<p>That's it. That's the whole trick. Instead of learning a <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d%20%5Ctimes%20k" /> matrix of updates (potentially millions of parameters), you learn two smaller matrices whose product has the same shape but far fewer total parameters.</p>
+<p>Let me make this concrete with a picture. Say you have a weight matrix in a transformer attention layer with $d = 4096$ and $k = 4096$:</p>
+<div class="codehilite"><pre><span></span><code>Full fine-tuning:                  LoRA (r=8):
+
+Update ΔW (4096 × 4096)           B (4096 × 8)    A (8 × 4096)
+
+┌─────────────────────┐            ┌──┐             ┌─────────────────────┐
+│                     │            │  │             │                     │
+│                     │            │  │             └─────────────────────┘
+│                     │            │  │              8 × 4096 = 32,768
+│    16,777,216       │            │  │              parameters
+│    parameters       │            │  │
+│                     │            │  │
+│                     │            │  │
+│                     │            │  │
+└─────────────────────┘            └──┘
+                                    4096 × 8 = 32,768
+                                    parameters
+
+Total full: 16,777,216             Total LoRA: 65,536 (0.4%)
+</code></pre></div>
+
+<p>With $r = 8$, you're training 65,536 parameters instead of 16.7 million — a <strong>256x reduction</strong> for this single layer. Across the entire model, LoRA typically trains 0.1-1% of the total parameters.</p>
+<h2>The Forward Pass: How It Actually Computes</h2>
+<p>During a forward pass, the original weight and the LoRA update combine like this. For an input $x$:</p>
+<p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20h%20%3D%20W_0%20x%20%2B%20%5CDelta%20W%20x%20%3D%20W_0%20x%20%2B%20BAx" /></p>
+<p>Here's what that looks like step by step:</p>
+<div class="codehilite"><pre><span></span><code>Input x ─────────────────┬───────────────────── Output h
+(batch × k)              │                      (batch × d)
+                         │
+              ┌──────────┴──────────┐
+              │                     │
+         Pretrained path       LoRA path
+              │                     │
+           W₀ · x              B · (A · x)
+         (frozen)           (trainable)
+              │                     │
+              └──────────┬──────────┘
+                         │
+                        (+)  ← element-wise add
+                         │
+                      Output h
+</code></pre></div>
+
+<p>The pretrained weights <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20W_0" /> stay <strong>completely frozen</strong>: no gradients, no optimizer states, no memory overhead. Only $B$ and $A$ receive gradients. This is why LoRA is so memory-efficient: you only store optimizer states for the tiny adapter matrices, not the full model.</p>
+<p>Let's implement this from scratch in PyTorch so you can see exactly what's happening:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span> <span class="nn">torch.nn</span> <span class="k">as</span> <span class="nn">nn</span>
+
+<span class="k">class</span> <span class="nc">LoRALinear</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">original_layer</span><span class="p">,</span> <span class="n">r</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">lora_alpha</span><span class="o">=</span><span class="mi">16</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">original</span> <span class="o">=</span> <span class="n">original_layer</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">original</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">requires_grad</span> <span class="o">=</span> <span class="kc">False</span>  <span class="c1"># freeze</span>
+
+        <span class="n">d</span><span class="p">,</span> <span class="n">k</span> <span class="o">=</span> <span class="n">original_layer</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">r</span> <span class="o">=</span> <span class="n">r</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lora_alpha</span> <span class="o">=</span> <span class="n">lora_alpha</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">scaling</span> <span class="o">=</span> <span class="n">lora_alpha</span> <span class="o">/</span> <span class="n">r</span>
+</code></pre></div>
+
+<p>A few things to notice here. The original layer is frozen (<code>requires_grad = False</code>). And there's a <code>scaling</code> factor that we'll come back to shortly. Now the adapter matrices:</p>
+<div class="codehilite"><pre><span></span><code>        <span class="c1"># A is initialized with Kaiming uniform (like the paper)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lora_A</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">k</span><span class="p">))</span>
+        <span class="n">nn</span><span class="o">.</span><span class="n">init</span><span class="o">.</span><span class="n">kaiming_uniform_</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">lora_A</span><span class="p">,</span> <span class="n">a</span><span class="o">=</span><span class="mi">5</span><span class="o">**</span><span class="mf">0.5</span><span class="p">)</span>
+
+        <span class="c1"># B is initialized to zero so ΔW = BA = 0 at start</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lora_B</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">d</span><span class="p">,</span> <span class="n">r</span><span class="p">))</span>
+</code></pre></div>
+
+<p>This initialization is critical. $B$ starts at zero, which means <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5CDelta%20W%20%3D%20BA%20%3D%200" /> at the beginning of training. The model starts producing exactly the same outputs as the pretrained model. Training then gradually learns the update. $A$ uses Kaiming uniform initialization to break symmetry.</p>
+<p>The forward pass puts it all together:</p>
+<div class="codehilite"><pre><span></span><code>    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="c1"># Original frozen path</span>
+        <span class="n">base_output</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">original</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="c1"># LoRA path: x → A → B → scale</span>
+        <span class="n">lora_output</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span> <span class="o">@</span> <span class="bp">self</span><span class="o">.</span><span class="n">lora_A</span><span class="o">.</span><span class="n">T</span> <span class="o">@</span> <span class="bp">self</span><span class="o">.</span><span class="n">lora_B</span><span class="o">.</span><span class="n">T</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">scaling</span>
+        <span class="k">return</span> <span class="n">base_output</span> <span class="o">+</span> <span class="n">lora_output</span>
+</code></pre></div>
+
+<p>Two separate matrix multiplications through the bottleneck: <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20x%20%5Ccdot%20A%5ET" /> compresses to rank $r$, then <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Ccdot%20B%5ET" /> projects back up, plus the scaling factor. Let's see the parameter savings in action:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">d</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">r</span> <span class="o">=</span> <span class="mi">4096</span><span class="p">,</span> <span class="mi">4096</span><span class="p">,</span> <span class="mi">8</span>
+<span class="n">full_params</span> <span class="o">=</span> <span class="n">d</span> <span class="o">*</span> <span class="n">k</span>
+<span class="n">lora_params</span> <span class="o">=</span> <span class="p">(</span><span class="n">d</span> <span class="o">*</span> <span class="n">r</span><span class="p">)</span> <span class="o">+</span> <span class="p">(</span><span class="n">r</span> <span class="o">*</span> <span class="n">k</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Full fine-tuning: </span><span class="si">{</span><span class="n">full_params</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> parameters&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;LoRA (r=</span><span class="si">{</span><span class="n">r</span><span class="si">}</span><span class="s2">):     </span><span class="si">{</span><span class="n">lora_params</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> parameters&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Reduction:        </span><span class="si">{</span><span class="n">full_params</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">lora_params</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2">x&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code>Full fine-tuning: 16,777,216 parameters
+LoRA (r=8):       65,536 parameters
+Reduction:        256x
+</code></pre></div>
+
+<h2>What Rank Actually Means</h2>
+<p>The rank $r$ is LoRA's most important hyperparameter, and it's worth building intuition about what it controls.</p>
+<p>In linear algebra, the rank of a matrix is the number of linearly independent rows (or equivalently, columns). A rank-$r$ matrix can be expressed as the sum of $r$ rank-1 outer products. Think of it as the number of "independent directions" the matrix can push information through.</p>
+<p>When we constrain <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5CDelta%20W%20%3D%20BA" /> with <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20B%20%5Cin%20%5Cmathbb%7BR%7D%5E%7Bd%20%5Ctimes%20r%7D" /> and <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20A%20%5Cin%20%5Cmathbb%7BR%7D%5E%7Br%20%5Ctimes%20k%7D" />, the product $BA$ has rank at most $r$. This means the weight update can only modify the model's behavior along $r$ independent directions in the weight space.</p>
+<p>The original LoRA paper found something surprising: even $r = 1$ or $r = 2$ works reasonably well for many tasks. The weight updates during fine-tuning really are low-rank. Here's an intuition for why: when you fine-tune on a specific task (like marketing copy), you're not rewiring the model's entire understanding of language. You're making a targeted adjustment: "write in this style" or "prefer these patterns." That adjustment occupies a small subspace of what the model's weights can represent.</p>
+<p>Here's a practical way to see this. Let's create a weight update, compute its singular values, and see how the energy concentrates:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span> <span class="nn">torch</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
+<span class="n">d</span><span class="p">,</span> <span class="n">k</span> <span class="o">=</span> <span class="mi">4096</span><span class="p">,</span> <span class="mi">4096</span>
+
+<span class="c1"># Simulate a fine-tuning weight update</span>
+<span class="n">delta_W</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">d</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span> <span class="o">*</span> <span class="mf">0.01</span>  <span class="c1"># small perturbation</span>
+<span class="n">U</span><span class="p">,</span> <span class="n">S</span><span class="p">,</span> <span class="n">Vt</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">svd</span><span class="p">(</span><span class="n">delta_W</span><span class="p">,</span> <span class="n">full_matrices</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+<span class="c1"># How much &quot;energy&quot; is captured by the top-r singular values?</span>
+<span class="n">total_energy</span> <span class="o">=</span> <span class="p">(</span><span class="n">S</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
+<span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="mi">64</span><span class="p">]:</span>
+    <span class="n">captured</span> <span class="o">=</span> <span class="p">(</span><span class="n">S</span><span class="p">[:</span><span class="n">r</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">/</span> <span class="n">total_energy</span> <span class="o">*</span> <span class="mi">100</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;r=</span><span class="si">{</span><span class="n">r</span><span class="si">:</span><span class="s2">3d</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">captured</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">% of energy captured&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code>r=  1: 0.10% of energy captured
+r=  2: 0.19% of energy captured
+r=  4: 0.39% of energy captured
+r=  8: 0.77% of energy captured
+r= 16: 1.52% of energy captured
+r= 32: 3.00% of energy captured
+r= 64: 5.85% of energy captured
+</code></pre></div>
+
+<p>A random matrix spreads its energy uniformly across all singular values, which is why even $r = 64$ only captures ~2%. But real fine-tuning updates aren't random. They concentrate on a few directions that matter for the task. In practice, $r = 8$ or $r = 16$ captures the meaningful signal while ignoring noise.</p>
+<h3>Choosing Rank in Practice</h3>
+<table>
+<thead>
+<tr>
+<th>Rank</th>
+<th>Trainable params (per 4096×4096 layer)</th>
+<th>Use case</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>4</td>
+<td>32,768</td>
+<td>Simple style transfer, narrow tasks</td>
+</tr>
+<tr>
+<td>8</td>
+<td>65,536</td>
+<td>Most fine-tuning tasks (good default)</td>
+</tr>
+<tr>
+<td>16</td>
+<td>131,072</td>
+<td>Complex tasks, multi-skill learning</td>
+</tr>
+<tr>
+<td>32</td>
+<td>262,144</td>
+<td>Approaching diminishing returns</td>
+</tr>
+<tr>
+<td>64</td>
+<td>524,288</td>
+<td>Rarely needed; consider full fine-tuning</td>
+</tr>
+</tbody>
+</table>
+<p>The sweet spot for most tasks is <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20r%20%5Cin%20%5B8%2C%2016%5D" />. Going higher adds parameters without proportional improvement. Going lower risks underfitting complex tasks.</p>
+<h2>The Scaling Factor: Why lora_alpha Exists</h2>
+<p>If you've ever stared at <code>lora_alpha=32</code> in a config and wondered what it does, here's the answer. The LoRA forward pass applies a scaling factor:</p>
+<p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20h%20%3D%20W_0%20x%20%2B%20%5Cfrac%7B%5Calpha%7D%7Br%7D%20%5Ccdot%20BAx" /></p>
+<p>Where <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Calpha" /> is <code>lora_alpha</code> and $r$ is the rank. This <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7B%5Calpha%7D%7Br%7D" /> scaling serves a critical purpose: it <strong>decouples the learning rate from the rank</strong>.</p>
+<p>Without this scaling, changing the rank would change the magnitude of the LoRA update. If you double $r$, you'd roughly double the norm of $BA$ (more parameters contributing to the output), and you'd need to halve the learning rate to compensate. The <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7B%5Calpha%7D%7Br%7D" /> factor normalizes this away.</p>
+<p>Here's the practical implication. When <code>lora_alpha = 2 * r</code> (the common convention), the scaling factor is <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7B2r%7D%7Br%7D%20%3D%202" />. The LoRA update gets amplified by 2x. This means:</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># These two configs behave similarly despite different ranks:</span>
+<span class="c1"># Config A: r=8,  alpha=16 → scaling = 16/8  = 2.0</span>
+<span class="c1"># Config B: r=16, alpha=32 → scaling = 32/16 = 2.0</span>
+<span class="c1"># Config C: r=8,  alpha=8  → scaling = 8/8   = 1.0  (no amplification)</span>
+</code></pre></div>
+
+<p>You can think of <code>lora_alpha</code> as a "volume knob" for the LoRA update. Higher alpha amplifies the adapter's effect. The convention of <code>alpha = 2 * r</code> works well in practice, but you can tune it, especially if you notice training instability (lower alpha) or the model not learning fast enough (higher alpha).</p>
+<p>Let's see this in action:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span> <span class="nn">torch</span>
+
+<span class="n">d</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">r</span> <span class="o">=</span> <span class="mi">128</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="mi">8</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
+<span class="n">B</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">d</span><span class="p">,</span> <span class="n">r</span><span class="p">)</span> <span class="o">*</span> <span class="mf">0.01</span>
+<span class="n">A</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span> <span class="o">*</span> <span class="mf">0.01</span>
+
+<span class="k">for</span> <span class="n">alpha</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">32</span><span class="p">]:</span>
+    <span class="n">scaling</span> <span class="o">=</span> <span class="n">alpha</span> <span class="o">/</span> <span class="n">r</span>
+    <span class="n">lora_out</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span> <span class="o">@</span> <span class="n">A</span><span class="o">.</span><span class="n">T</span> <span class="o">@</span> <span class="n">B</span><span class="o">.</span><span class="n">T</span><span class="p">)</span> <span class="o">*</span> <span class="n">scaling</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;alpha=</span><span class="si">{</span><span class="n">alpha</span><span class="si">:</span><span class="s2">2d</span><span class="si">}</span><span class="s2">, scaling=</span><span class="si">{</span><span class="n">scaling</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">, &quot;</span>
+          <span class="sa">f</span><span class="s2">&quot;output norm=</span><span class="si">{</span><span class="n">lora_out</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code>alpha= 4, scaling=0.5, output norm=0.0250
+alpha= 8, scaling=1.0, output norm=0.0501
+alpha=16, scaling=2.0, output norm=0.1002
+alpha=32, scaling=4.0, output norm=0.2003
+</code></pre></div>
+
+<p>Linear relationship: double the alpha, double the output magnitude. The learning rate and scaling factor interact, which is why the convention of fixing <code>alpha = 2r</code> and tuning only the learning rate is the pragmatic approach.</p>
+<h2>Which Layers Get LoRA?</h2>
+<p>In a transformer, LoRA is typically applied to the attention projection matrices. Looking at a standard multi-head attention block:</p>
+<div class="codehilite"><pre><span></span><code>Input
+  │
+  ├──→ Q = W_q · x     ← LoRA here (q_proj)
+  ├──→ K = W_k · x     ← LoRA here (k_proj)
+  ├──→ V = W_v · x     ← LoRA here (v_proj)
+  │
+  │    Attention(Q, K, V)
+  │
+  └──→ O = W_o · attn   ← LoRA here (o_proj)
+</code></pre></div>
+
+<p>The original paper applied LoRA only to <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20W_q" /> and <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20W_v" />, but modern practice targets all four attention projections. Some people also include the MLP layers (<code>gate_proj</code>, <code>up_proj</code>, <code>down_proj</code>), though the marginal benefit varies.</p>
+<p>Here's the config you'll see in most production setups:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">from</span> <span class="nn">peft</span> <span class="kn">import</span> <span class="n">LoraConfig</span>
+
+<span class="c1"># Standard config — attention projections only</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">LoraConfig</span><span class="p">(</span>
+    <span class="n">r</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+    <span class="n">lora_alpha</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+    <span class="n">lora_dropout</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span>
+    <span class="n">target_modules</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;q_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;v_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;k_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;o_proj&quot;</span><span class="p">],</span>
+    <span class="n">task_type</span><span class="o">=</span><span class="s2">&quot;CAUSAL_LM&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+
+<p>And if you want to be more aggressive:</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># Extended config — attention + MLP</span>
+<span class="n">config_extended</span> <span class="o">=</span> <span class="n">LoraConfig</span><span class="p">(</span>
+    <span class="n">r</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+    <span class="n">lora_alpha</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+    <span class="n">lora_dropout</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span>
+    <span class="n">target_modules</span><span class="o">=</span><span class="p">[</span>
+        <span class="s2">&quot;q_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;v_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;k_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;o_proj&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;gate_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;up_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;down_proj&quot;</span><span class="p">,</span>
+    <span class="p">],</span>
+    <span class="n">task_type</span><span class="o">=</span><span class="s2">&quot;CAUSAL_LM&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+
+<p>Let's count the parameter difference across a full model:</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># Llama 3.1 8B has 32 transformer layers</span>
+<span class="n">num_layers</span> <span class="o">=</span> <span class="mi">32</span>
+<span class="n">d_model</span> <span class="o">=</span> <span class="mi">4096</span>
+<span class="n">d_ffn</span> <span class="o">=</span> <span class="mi">14336</span>  <span class="c1"># MLP intermediate size</span>
+<span class="n">r</span> <span class="o">=</span> <span class="mi">16</span>
+
+<span class="c1"># Attention-only LoRA</span>
+<span class="n">attn_params</span> <span class="o">=</span> <span class="n">num_layers</span> <span class="o">*</span> <span class="mi">4</span> <span class="o">*</span> <span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">d_model</span> <span class="o">*</span> <span class="n">r</span><span class="p">)</span>
+<span class="c1"># Attention + MLP LoRA</span>
+<span class="n">mlp_params</span> <span class="o">=</span> <span class="n">num_layers</span> <span class="o">*</span> <span class="mi">3</span> <span class="o">*</span> <span class="p">((</span><span class="n">d_model</span> <span class="o">*</span> <span class="n">r</span><span class="p">)</span> <span class="o">+</span> <span class="p">(</span><span class="n">d_ffn</span> <span class="o">*</span> <span class="n">r</span><span class="p">))</span>
+<span class="n">total_attn</span> <span class="o">=</span> <span class="n">attn_params</span>
+<span class="n">total_all</span> <span class="o">=</span> <span class="n">attn_params</span> <span class="o">+</span> <span class="n">mlp_params</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Attention-only LoRA: </span><span class="si">{</span><span class="n">total_attn</span><span class="si">:</span><span class="s2">&gt;12,</span><span class="si">}</span><span class="s2"> params&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Attention + MLP LoRA: </span><span class="si">{</span><span class="n">total_all</span><span class="si">:</span><span class="s2">&gt;11,</span><span class="si">}</span><span class="s2"> params&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Full model:           8,000,000,000 params&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Attn LoRA %:          </span><span class="si">{</span><span class="n">total_attn</span><span class="o">/</span><span class="mf">8e9</span><span class="o">*</span><span class="mi">100</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">%&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;All LoRA %:           </span><span class="si">{</span><span class="n">total_all</span><span class="o">/</span><span class="mf">8e9</span><span class="o">*</span><span class="mi">100</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">%&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code>Attention-only LoRA:    16,777,216 params
+Attention + MLP LoRA:   45,088,768 params
+Full model:           8,000,000,000 params
+Attn LoRA %:          0.21%
+All LoRA %:           0.56%
+</code></pre></div>
+
+<p>Even the aggressive "all projections" approach trains less than 1% of the model. That's LoRA's superpower.</p>
+<h2>A Complete Training Example</h2>
+<p>Let's put all the pieces together with a real training example. We'll fine-tune a small model so you can actually run this, and inspect the LoRA matrices at each stage.</p>
+<p>First, let's create a minimal dataset and load a model with LoRA:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">from</span> <span class="nn">transformers</span> <span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span>
+<span class="kn">from</span> <span class="nn">peft</span> <span class="kn">import</span> <span class="n">LoraConfig</span><span class="p">,</span> <span class="n">get_peft_model</span>
+<span class="kn">import</span> <span class="nn">torch</span>
+
+<span class="n">model_name</span> <span class="o">=</span> <span class="s2">&quot;HuggingFaceTB/SmolLM2-135M&quot;</span>
+<span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_name</span><span class="p">)</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="n">model_name</span><span class="p">,</span> <span class="n">torch_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
+<span class="p">)</span>
+
+<span class="n">lora_config</span> <span class="o">=</span> <span class="n">LoraConfig</span><span class="p">(</span>
+    <span class="n">r</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+    <span class="n">lora_alpha</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+    <span class="n">target_modules</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;q_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;v_proj&quot;</span><span class="p">],</span>
+    <span class="n">task_type</span><span class="o">=</span><span class="s2">&quot;CAUSAL_LM&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">model</span> <span class="o">=</span> <span class="n">get_peft_model</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">lora_config</span><span class="p">)</span>
+<span class="n">model</span><span class="o">.</span><span class="n">print_trainable_parameters</span><span class="p">()</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code>trainable params: 460,800 || all params: 134,975,808 || trainable%: 0.3414
+</code></pre></div>
+
+<p>Only 0.34% of parameters are trainable. Let's inspect what the LoRA matrices look like before training:</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># Grab the LoRA matrices from the first layer&#39;s q_proj</span>
+<span class="n">q_lora</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">layers</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">self_attn</span><span class="o">.</span><span class="n">q_proj</span>
+<span class="n">lora_A</span> <span class="o">=</span> <span class="n">q_lora</span><span class="o">.</span><span class="n">lora_A</span><span class="o">.</span><span class="n">default</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">data</span>
+<span class="n">lora_B</span> <span class="o">=</span> <span class="n">q_lora</span><span class="o">.</span><span class="n">lora_B</span><span class="o">.</span><span class="n">default</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">data</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;lora_A shape: </span><span class="si">{</span><span class="n">lora_A</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, norm: </span><span class="si">{</span><span class="n">lora_A</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;lora_B shape: </span><span class="si">{</span><span class="n">lora_B</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, norm: </span><span class="si">{</span><span class="n">lora_B</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ΔW = B·A norm: </span><span class="si">{</span><span class="p">(</span><span class="n">lora_B</span><span class="w"> </span><span class="o">@</span><span class="w"> </span><span class="n">lora_A</span><span class="p">)</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code>lora_A shape: torch.Size([8, 576]), norm: 1.6235
+lora_B shape: torch.Size([576, 8]), norm: 0.0000
+ΔW = B·A norm: 0.0000
+</code></pre></div>
+
+<p>Exactly as expected. $A$ is initialized with random values, $B$ is all zeros, so <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5CDelta%20W%20%3D%20BA%20%3D%200" />. The model starts as if no adapter exists.</p>
+<p>Now let's train it on a few examples and see how the matrices change:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">from</span> <span class="nn">trl</span> <span class="kn">import</span> <span class="n">SFTConfig</span><span class="p">,</span> <span class="n">SFTTrainer</span>
+<span class="kn">from</span> <span class="nn">datasets</span> <span class="kn">import</span> <span class="n">Dataset</span>
+
+<span class="c1"># Simple dataset for demonstration</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_list</span><span class="p">([</span>
+    <span class="p">{</span><span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="s2">&quot;The capital of France is Paris.&quot;</span><span class="p">},</span>
+    <span class="p">{</span><span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="s2">&quot;Machine learning models learn from data.&quot;</span><span class="p">},</span>
+    <span class="p">{</span><span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="s2">&quot;PyTorch is a deep learning framework.&quot;</span><span class="p">},</span>
+    <span class="p">{</span><span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="s2">&quot;Transformers use self-attention mechanisms.&quot;</span><span class="p">},</span>
+<span class="p">]</span> <span class="o">*</span> <span class="mi">50</span><span class="p">)</span>  <span class="c1"># repeat for a few epochs worth of data</span>
+
+<span class="n">tokenizer</span><span class="o">.</span><span class="n">pad_token</span> <span class="o">=</span> <span class="n">tokenizer</span><span class="o">.</span><span class="n">eos_token</span>
+<span class="n">training_args</span> <span class="o">=</span> <span class="n">SFTConfig</span><span class="p">(</span>
+    <span class="n">output_dir</span><span class="o">=</span><span class="s2">&quot;./lora-demo&quot;</span><span class="p">,</span>
+    <span class="n">num_train_epochs</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+    <span class="n">per_device_train_batch_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+    <span class="n">learning_rate</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">,</span>
+    <span class="n">logging_steps</span><span class="o">=</span><span class="mi">25</span><span class="p">,</span>
+    <span class="n">max_length</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>
+    <span class="n">report_to</span><span class="o">=</span><span class="s2">&quot;none&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">trainer</span> <span class="o">=</span> <span class="n">SFTTrainer</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+    <span class="n">args</span><span class="o">=</span><span class="n">training_args</span><span class="p">,</span>
+    <span class="n">train_dataset</span><span class="o">=</span><span class="n">data</span><span class="p">,</span>
+    <span class="n">processing_class</span><span class="o">=</span><span class="n">tokenizer</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
+</code></pre></div>
+
+<p>After training, let's check the matrices again:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">lora_A_after</span> <span class="o">=</span> <span class="n">q_lora</span><span class="o">.</span><span class="n">lora_A</span><span class="o">.</span><span class="n">default</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">data</span>
+<span class="n">lora_B_after</span> <span class="o">=</span> <span class="n">q_lora</span><span class="o">.</span><span class="n">lora_B</span><span class="o">.</span><span class="n">default</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">data</span>
+<span class="n">delta_W</span> <span class="o">=</span> <span class="n">lora_B_after</span> <span class="o">@</span> <span class="n">lora_A_after</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;lora_A norm: </span><span class="si">{</span><span class="n">lora_A_after</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;lora_B norm: </span><span class="si">{</span><span class="n">lora_B_after</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ΔW = B·A norm: </span><span class="si">{</span><span class="n">delta_W</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ΔW shape: </span><span class="si">{</span><span class="n">delta_W</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ΔW rank: ≤ </span><span class="si">{</span><span class="n">lora_config</span><span class="o">.</span><span class="n">r</span><span class="si">}</span><span class="s2"> (by construction)&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>$B$ is no longer zero. Training has learned a low-rank update. The model's behavior has shifted, but only along 8 independent directions in the weight space.</p>
+<h2>Merging: Collapsing the Adapter Into the Model</h2>
+<p>This is where things get practically interesting. You've trained your LoRA adapter. Now what? You have two options: keep the adapter separate, or merge it into the base model. The choice has real implications for serving.</p>
+<h3>What Merging Means</h3>
+<p>Merging is just matrix addition. You take the pretrained weight <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20W_0" /> and permanently add the LoRA update:</p>
+<p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20W_%7B%5Ctext%7Bmerged%7D%7D%20%3D%20W_0%20%2B%20%5Cfrac%7B%5Calpha%7D%7Br%7D%20%5Ccdot%20BA" /></p>
+<p>After merging, the model is a regular model again: no adapter, no separate matrices, no extra computation at inference time.</p>
+<div class="codehilite"><pre><span></span><code>Before merge (inference):           After merge (inference):
+
+  x ──┬──→ W₀·x ──┐                  x ──→ W_merged·x ──→ output
+      │             (+) → output
+      └──→ B·A·x ──┘                  One matrix multiply.
+                                       No adapter overhead.
+  Two paths computed.
+  Adapter stored separately.
+</code></pre></div>
+
+<p>Here's how you do it in code:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">from</span> <span class="nn">peft</span> <span class="kn">import</span> <span class="n">PeftModel</span>
+
+<span class="c1"># Option 1: merge and get a regular model</span>
+<span class="n">merged_model</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">merge_and_unload</span><span class="p">()</span>
+
+<span class="c1"># The merged model is a standard transformers model now</span>
+<span class="c1"># No LoRA layers, no adapters: just modified weights</span>
+<span class="n">merged_model</span><span class="o">.</span><span class="n">save_pretrained</span><span class="p">(</span><span class="s2">&quot;./merged-model&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>Let's verify the merge is mathematically correct:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span> <span class="nn">torch</span>
+
+<span class="c1"># Before: base weight + LoRA</span>
+<span class="n">W0</span> <span class="o">=</span> <span class="n">q_lora</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span>       <span class="c1"># original frozen weight</span>
+<span class="n">scaling</span> <span class="o">=</span> <span class="n">lora_config</span><span class="o">.</span><span class="n">lora_alpha</span> <span class="o">/</span> <span class="n">lora_config</span><span class="o">.</span><span class="n">r</span>
+<span class="n">delta_W</span> <span class="o">=</span> <span class="p">(</span><span class="n">lora_B_after</span> <span class="o">@</span> <span class="n">lora_A_after</span><span class="p">)</span> <span class="o">*</span> <span class="n">scaling</span>
+
+<span class="c1"># Manually compute the merged weight</span>
+<span class="n">W_manual</span> <span class="o">=</span> <span class="n">W0</span> <span class="o">+</span> <span class="n">delta_W</span>
+
+<span class="c1"># Compare with what PEFT computes</span>
+<span class="n">W_peft</span> <span class="o">=</span> <span class="n">merged_model</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">layers</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">self_attn</span><span class="o">.</span><span class="n">q_proj</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">data</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Manual merge matches PEFT: &quot;</span>
+      <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">torch</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">W_manual</span><span class="p">,</span><span class="w"> </span><span class="n">W_peft</span><span class="p">,</span><span class="w"> </span><span class="n">atol</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code>Manual merge matches PEFT: True
+</code></pre></div>
+
+<p>Just matrix addition with scaling. Nothing mysterious.</p>
+<h3>What Happens If You Don't Merge</h3>
+<p>If you skip the merge, the LoRA adapter stays separate from the base model. This isn't just an academic distinction; it affects both performance and flexibility.</p>
+<p><strong>Inference overhead.</strong> Without merging, every forward pass computes two paths: the base model path and the LoRA path. For a single request, the overhead is small. But at scale, those extra matrix multiplications add up:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span> <span class="nn">time</span>
+
+<span class="n">d</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">r</span> <span class="o">=</span> <span class="mi">4096</span><span class="p">,</span> <span class="mi">4096</span><span class="p">,</span> <span class="mi">16</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">32</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>  <span class="c1"># batch of 32</span>
+
+<span class="n">W0</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">d</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
+<span class="n">B</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">d</span><span class="p">,</span> <span class="n">r</span><span class="p">)</span>
+<span class="n">A</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
+<span class="n">W_merged</span> <span class="o">=</span> <span class="n">W0</span> <span class="o">+</span> <span class="n">B</span> <span class="o">@</span> <span class="n">A</span>
+
+<span class="c1"># Benchmark: merged (single matmul) vs unmerged (two paths)</span>
+<span class="k">def</span> <span class="nf">bench_merged</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">W</span><span class="p">,</span> <span class="n">n</span><span class="o">=</span><span class="mi">1000</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+        <span class="n">_</span> <span class="o">=</span> <span class="n">x</span> <span class="o">@</span> <span class="n">W</span><span class="o">.</span><span class="n">T</span>
+
+<span class="k">def</span> <span class="nf">bench_unmerged</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">W0</span><span class="p">,</span> <span class="n">A</span><span class="p">,</span> <span class="n">B</span><span class="p">,</span> <span class="n">n</span><span class="o">=</span><span class="mi">1000</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+        <span class="n">_</span> <span class="o">=</span> <span class="n">x</span> <span class="o">@</span> <span class="n">W0</span><span class="o">.</span><span class="n">T</span> <span class="o">+</span> <span class="n">x</span> <span class="o">@</span> <span class="n">A</span><span class="o">.</span><span class="n">T</span> <span class="o">@</span> <span class="n">B</span><span class="o">.</span><span class="n">T</span>
+
+<span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+<span class="n">bench_merged</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">W_merged</span><span class="p">)</span>
+<span class="n">t_merged</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t0</span>
+
+<span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+<span class="n">bench_unmerged</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">W0</span><span class="p">,</span> <span class="n">A</span><span class="p">,</span> <span class="n">B</span><span class="p">)</span>
+<span class="n">t_unmerged</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t0</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Merged:   </span><span class="si">{</span><span class="n">t_merged</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unmerged: </span><span class="si">{</span><span class="n">t_unmerged</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Overhead: </span><span class="si">{</span><span class="p">(</span><span class="n">t_unmerged</span><span class="o">/</span><span class="n">t_merged</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="mi">100</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">%&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>The exact overhead depends on hardware, but expect 5-15% extra latency on the forward pass. Not catastrophic, but not free.</p>
+<p><strong>Multi-adapter serving.</strong> Here's the flip side: not merging is actually a <em>feature</em> when you need to serve multiple adapters. If you have one base model and 50 brand-specific LoRA adapters (like the marketing scenario from the previous post), you can:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">from</span> <span class="nn">peft</span> <span class="kn">import</span> <span class="n">PeftModel</span>
+
+<span class="c1"># Load base model once (most of the memory)</span>
+<span class="n">base_model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="s2">&quot;meta-llama/Llama-3.1-8B-Instruct&quot;</span><span class="p">,</span>
+    <span class="n">torch_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">,</span>
+    <span class="n">device_map</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Load different adapters on the fly</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">PeftModel</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">base_model</span><span class="p">,</span> <span class="s2">&quot;./adapter-brand-A&quot;</span><span class="p">)</span>
+<span class="n">output_A</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+
+<span class="c1"># Switch to a different adapter (near instant)</span>
+<span class="n">model</span><span class="o">.</span><span class="n">load_adapter</span><span class="p">(</span><span class="s2">&quot;./adapter-brand-B&quot;</span><span class="p">,</span> <span class="n">adapter_name</span><span class="o">=</span><span class="s2">&quot;brand_b&quot;</span><span class="p">)</span>
+<span class="n">model</span><span class="o">.</span><span class="n">set_adapter</span><span class="p">(</span><span class="s2">&quot;brand_b&quot;</span><span class="p">)</span>
+<span class="n">output_B</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+</code></pre></div>
+
+<p>Each adapter is a few megabytes. The base model is tens of gigabytes. Without merging, you store one base model + N tiny adapters instead of N full model copies. That's the difference between needing 1 GPU and needing 50.</p>
+<div class="codehilite"><pre><span></span><code>Merged approach:                     Adapter approach:
+
+┌────────────────────┐               ┌────────────────────┐
+│ Merged Model A     │  ~16 GB       │ Base Model         │  ~16 GB
+│ (base + adapter A) │               │ (shared)           │
+└────────────────────┘               └────────────────────┘
+┌────────────────────┐                   │
+│ Merged Model B     │  ~16 GB          ┌┴─────┐
+│ (base + adapter B) │               ┌──┤      ├──┐
+└────────────────────┘               │  └──────┘  │
+┌────────────────────┐            ┌──┴──┐      ┌──┴──┐
+│ Merged Model C     │  ~16 GB   │ A   │      │ B   │  ~10 MB each
+│ (base + adapter C) │           │     │      │     │
+└────────────────────┘           └─────┘      └─────┘
+                                              ┌─────┐
+Total: ~48 GB                                 │ C   │
+                                              └─────┘
+                                 Total: ~16.03 GB
+</code></pre></div>
+
+<h3>When to Merge vs. Keep Separate</h3>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>Merge?</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Single model in production</td>
+<td>Yes</td>
+<td>No overhead, simpler serving</td>
+</tr>
+<tr>
+<td>Multiple adapters, one base</td>
+<td>No</td>
+<td>Memory efficient, hot-swappable</td>
+</tr>
+<tr>
+<td>Distributing fine-tuned model</td>
+<td>Yes</td>
+<td>Easier for users, no PEFT dependency</td>
+</tr>
+<tr>
+<td>Continued training / experimentation</td>
+<td>No</td>
+<td>Keep adapter separate for iteration</td>
+</tr>
+<tr>
+<td>Stacking adapters (LoRA + LoRA)</td>
+<td>No</td>
+<td>Can combine multiple adapters</td>
+</tr>
+</tbody>
+</table>
+<h3>The Merge in Detail</h3>
+<p>Let's trace exactly what <code>merge_and_unload</code> does under the hood. It's simple but worth understanding:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span> <span class="nn">torch</span>
+
+<span class="c1"># Simulating the merge process</span>
+<span class="n">d</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">r</span> <span class="o">=</span> <span class="mi">512</span><span class="p">,</span> <span class="mi">512</span><span class="p">,</span> <span class="mi">8</span>
+<span class="n">alpha</span><span class="p">,</span> <span class="n">rank</span> <span class="o">=</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">8</span>
+<span class="n">scaling</span> <span class="o">=</span> <span class="n">alpha</span> <span class="o">/</span> <span class="n">rank</span>
+
+<span class="c1"># Pretrained weight (frozen during training)</span>
+<span class="n">W0</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">d</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
+
+<span class="c1"># Learned LoRA matrices</span>
+<span class="n">B</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">d</span><span class="p">,</span> <span class="n">r</span><span class="p">)</span> <span class="o">*</span> <span class="mf">0.01</span>
+<span class="n">A</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span> <span class="o">*</span> <span class="mf">0.01</span>
+
+<span class="c1"># Step 1: compute the low-rank update</span>
+<span class="n">delta_W</span> <span class="o">=</span> <span class="n">B</span> <span class="o">@</span> <span class="n">A</span>  <span class="c1"># (d × r) @ (r × k) = (d × k)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ΔW shape: </span><span class="si">{</span><span class="n">delta_W</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="c1"># Step 2: apply the scaling factor</span>
+<span class="n">delta_W_scaled</span> <span class="o">=</span> <span class="n">delta_W</span> <span class="o">*</span> <span class="n">scaling</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Scaling factor (α/r): </span><span class="si">{</span><span class="n">scaling</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="c1"># Step 3: add to original weights</span>
+<span class="n">W_merged</span> <span class="o">=</span> <span class="n">W0</span> <span class="o">+</span> <span class="n">delta_W_scaled</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;W0 norm:      </span><span class="si">{</span><span class="n">W0</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ΔW norm:      </span><span class="si">{</span><span class="n">delta_W_scaled</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;W_merged norm: </span><span class="si">{</span><span class="n">W_merged</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>The merged weight is a regular matrix. No special structure, no adapter overhead. But you lose the ability to "un-merge"; the adapter's contribution is baked into the weights permanently.</p>
+<h2>Practical Tips From Production</h2>
+<p>A few things I've learned the hard way that the paper doesn't tell you:</p>
+<p><strong>Start with r=8 and alpha=16.</strong> This is a good default for 7B-13B parameter models on most tasks. Only increase rank if you see clear signs of underfitting (training loss not decreasing fast enough despite reasonable learning rate).</p>
+<p><strong>Learning rate matters more than rank.</strong> The learning rate for LoRA should typically be 5-10x higher than what you'd use for full fine-tuning. This is because you're only updating a small subset of parameters, so they need to move more per step to have the same overall effect. Start with <code>2e-4</code> and adjust from there.</p>
+<p><strong>Dropout is your friend for small datasets.</strong> <code>lora_dropout=0.05</code> is the default, but if you're training on fewer than 1000 examples, bump it to <code>0.1</code>. The low-rank bottleneck is already a form of regularization, but it's not always enough.</p>
+<p><strong>Save adapters, not merged models</strong>, at least during development. A LoRA adapter for a 7B model is ~10-50 MB. A merged model is ~14 GB. When you're running dozens of experiments, that storage difference matters.</p>
+<p><strong>Double-check your target modules.</strong> Different model families have different linear layer names. Llama uses <code>q_proj</code>, <code>k_proj</code>, <code>v_proj</code>, <code>o_proj</code>. Other models might use <code>query</code>, <code>key</code>, <code>value</code>, or <code>qkv_proj</code>. Check with:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">from</span> <span class="nn">peft</span> <span class="kn">import</span> <span class="n">LoraConfig</span>
+
+<span class="c1"># Let PEFT figure out the right layer names</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">LoraConfig</span><span class="p">(</span><span class="n">r</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">target_modules</span><span class="o">=</span><span class="s2">&quot;all-linear&quot;</span><span class="p">)</span>
+<span class="c1"># Or inspect the model manually:</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">module</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_modules</span><span class="p">():</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<h2>Wrapping Up</h2>
+<p>LoRA's elegance is in how simple it actually is once you see the math. Freeze the pretrained weights, learn a low-rank update decomposed into two small matrices, and add it to the forward pass with a scaling factor. That's the whole algorithm. The rest is engineering: choosing which layers to target, setting the rank and scaling, deciding whether to merge for serving or keep adapters separate for flexibility.</p>
+<p>The next time you write <code>LoraConfig(r=16, lora_alpha=32)</code>, you'll know exactly what those numbers mean and why they matter. And when someone on your team asks "can we make r bigger?" you'll be able to explain <em>what</em> it actually changes in the weight space, not just <em>whether</em> to do it.</p>
+<hr />
+<p><em>Originally published on <a href="https://ai-terminal.net/llm/fine-tuning/2025/12/28/lora-deep-dive/">AI Terminal</a>.</em></p>
+<p>Tags: lora, peft, merging, low-rank, fine-tuning</p>
