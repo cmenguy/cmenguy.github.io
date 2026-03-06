@@ -6,525 +6,157 @@
 <p>I was scrolling through X late on a Friday night (as one does) when I spotted a post from Andrej Karpathy linking to a new <a href="https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95">gist</a>. The title: <em>"The most atomic way to train and run inference for a GPT in pure, dependency-free Python."</em> I clicked through, started reading, and an hour later I was still sitting there. Not because the code was long. The opposite. It was about 200 lines. No PyTorch, no NumPy, no dependencies at all. Just <code>math</code>, <code>random</code>, and <code>os</code>. And it trains a working GPT model.</p>
 <p>That hit me in a specific way. I've been working with transformers for years at this point, and most of that time is spent at a level of abstraction where you're calling <code>model = AutoModelForCausalLM.from_pretrained(...)</code> and trusting that the 47 layers of library code underneath are doing the right thing. You know the architecture conceptually. You can sketch the attention diagram on a whiteboard. But could you write it from scratch, with no libraries, and get it to actually learn something? I wasn't sure I could, and that bothered me.</p>
 <p>So I spent the weekend going through Karpathy's code line by line, making sure I understood every piece, every derivative, every design choice. What follows is that exercise: a complete walkthrough of a GPT implementation in pure Python, mapped back to the concepts from <a href="https://arxiv.org/abs/1706.03762">Attention Is All You Need</a> and the broader transformer literature. If you're someone who uses these models daily but hasn't looked under the hood in a while, this is your excuse to refresh the fundamentals.</p>
-<h2>The Setup: Data and Tokenization</h2>
+<h2>1. The Setup: Data and Tokenization</h2>
 <p>The code starts by downloading a dataset of names (from Karpathy's <a href="https://github.com/karpathy/makemore">makemore</a> project) and building a character-level tokenizer.</p>
-<div class="codehilite"><pre><span></span><code><span class="kn">import</span> <span class="nn">os</span>
-<span class="kn">import</span> <span class="nn">math</span>
-<span class="kn">import</span> <span class="nn">random</span>
-
-<span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
-
-<span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="s1">&#39;input.txt&#39;</span><span class="p">):</span>
-    <span class="kn">import</span> <span class="nn">urllib.request</span>
-    <span class="n">names_url</span> <span class="o">=</span> <span class="s1">&#39;https://raw.githubusercontent.com/karpathy/makemore/988aa59/names.txt&#39;</span>
-    <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">urlretrieve</span><span class="p">(</span><span class="n">names_url</span><span class="p">,</span> <span class="s1">&#39;input.txt&#39;</span><span class="p">)</span>
-
-<span class="n">docs</span> <span class="o">=</span> <span class="p">[</span><span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="nb">open</span><span class="p">(</span><span class="s1">&#39;input.txt&#39;</span><span class="p">)</span> <span class="k">if</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()]</span>
-<span class="n">random</span><span class="o">.</span><span class="n">shuffle</span><span class="p">(</span><span class="n">docs</span><span class="p">)</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/9e7f1eccca0ef0d086d82aaf0520a481.js"></script>
 <p>Nothing fancy here. We download a list of ~32,000 names, strip whitespace, and shuffle. Each name is a "document" in this mini language model. Here's what the raw data looks like:</p>
-<div class="codehilite"><pre><span></span><code>docs[0]: &quot;yuheng&quot;
-docs[1]: &quot;diondre&quot;
-docs[2]: &quot;xavien&quot;
-docs[3]: &quot;jori&quot;
-docs[4]: &quot;juanluis&quot;
-docs[5]: &quot;erandi&quot;
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/ff17c39f81fc4fe4ef7ff5e5701a289d.js"></script>
 <p>The model's job: learn the statistical patterns of how characters follow each other in English names, then generate new ones.</p>
 <p>The tokenizer is as simple as it gets:</p>
-<div class="codehilite"><pre><span></span><code><span class="n">uchars</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="s1">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">docs</span><span class="p">)))</span>  <span class="c1"># unique characters -&gt; token ids 0..n-1</span>
-<span class="n">BOS</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">uchars</span><span class="p">)</span>                     <span class="c1"># special Beginning of Sequence token</span>
-<span class="n">vocab_size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">uchars</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>          <span class="c1"># +1 for BOS</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/12f7a1aeac2ea5ca5caee06d4da08926.js"></script>
 <p>This gives us 27 tokens: 26 lowercase letters plus a BOS (beginning-of-sequence) token. The mapping is just alphabetical order:</p>
-<div class="codehilite"><pre><span></span><code>a=0, b=1, c=2, d=3, e=4, f=5, g=6, h=7, i=8, j=9, k=10, l=11, m=12,
-n=13, o=14, p=15, q=16, r=17, s=18, t=19, u=20, v=21, w=22, x=23, y=24, z=25
-BOS=26
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/b2bfceeb84e31c798655473566173c35.js"></script>
 <p>In production LLMs, you'd use something like BPE with a vocab of 32k-128k tokens. Here, character-level keeps things dead simple. The BOS token is used both to signal the start and end of a name, which is a common trick in small language models.</p>
-<h2>Autograd: Building the Computation Graph</h2>
+<h2>2. Autograd: Building the Computation Graph</h2>
 <p>Here's where things get interesting. Real frameworks like PyTorch give you automatic differentiation for free. Karpathy builds his own from scratch in about 50 lines. This is the <code>Value</code> class, and it's the engine that makes backpropagation work.</p>
-<h3>The Value Node</h3>
-<div class="codehilite"><pre><span></span><code><span class="k">class</span> <span class="nc">Value</span><span class="p">:</span>
-    <span class="vm">__slots__</span> <span class="o">=</span> <span class="p">(</span><span class="s1">&#39;data&#39;</span><span class="p">,</span> <span class="s1">&#39;grad&#39;</span><span class="p">,</span> <span class="s1">&#39;_children&#39;</span><span class="p">,</span> <span class="s1">&#39;_local_grads&#39;</span><span class="p">)</span>
-
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">children</span><span class="o">=</span><span class="p">(),</span> <span class="n">local_grads</span><span class="o">=</span><span class="p">()):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">data</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">grad</span> <span class="o">=</span> <span class="mi">0</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_children</span> <span class="o">=</span> <span class="n">children</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_local_grads</span> <span class="o">=</span> <span class="n">local_grads</span>
-</code></pre></div>
-
+<h4>2.1 The Value Node</h4>
+<script src="https://gist.github.com/cmenguy/27c66b1f7f0ce4236d4f62cf09b28d22.js"></script>
 <p>Each <code>Value</code> holds four things:
 - <code>data</code>: the actual scalar number (forward pass result)
 - <code>grad</code>: the gradient of the loss with respect to this node (filled in during backward pass)
 - <code>_children</code>: the inputs that produced this node
 - <code>_local_grads</code>: the partial derivatives of this node with respect to each child</p>
 <p>The <code>__slots__</code> line is a Python optimization that prevents dynamic attribute creation, saving memory. When you're about to create thousands of <code>Value</code> objects per training step, that matters.</p>
-<h3>Arithmetic Operations</h3>
+<h4>2.2 Arithmetic Operations</h4>
 <p>Each math operation creates a new <code>Value</code> and records the local gradient. This is the chain rule made explicit:</p>
-<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="fm">__add__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span>
-    <span class="n">other</span> <span class="o">=</span> <span class="n">other</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">other</span><span class="p">,</span> <span class="n">Value</span><span class="p">)</span> <span class="k">else</span> <span class="n">Value</span><span class="p">(</span><span class="n">other</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">Value</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">+</span> <span class="n">other</span><span class="o">.</span><span class="n">data</span><span class="p">,</span> <span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">),</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
-
-<span class="k">def</span> <span class="fm">__mul__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span>
-    <span class="n">other</span> <span class="o">=</span> <span class="n">other</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">other</span><span class="p">,</span> <span class="n">Value</span><span class="p">)</span> <span class="k">else</span> <span class="n">Value</span><span class="p">(</span><span class="n">other</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">Value</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">*</span> <span class="n">other</span><span class="o">.</span><span class="n">data</span><span class="p">,</span> <span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">),</span> <span class="p">(</span><span class="n">other</span><span class="o">.</span><span class="n">data</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">))</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/edf692645a42e741cefd6914cc581071.js"></script>
 <p>For addition $f(a, b) = a + b$: the partial derivatives are <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7B%5Cpartial%20f%7D%7B%5Cpartial%20a%7D%20%3D%201" /> and <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7B%5Cpartial%20f%7D%7B%5Cpartial%20b%7D%20%3D%201" />. That's the <code>(1, 1)</code> tuple.</p>
 <p>For multiplication <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20f%28a%2C%20b%29%20%3D%20a%20%5Ccdot%20b" />: the partial derivatives are <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7B%5Cpartial%20f%7D%7B%5Cpartial%20a%7D%20%3D%20b" /> and <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7B%5Cpartial%20f%7D%7B%5Cpartial%20b%7D%20%3D%20a" />. That's the <code>(other.data, self.data)</code> tuple. Classic product rule.</p>
-<h3>Power, Log, Exp, and ReLU</h3>
-<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="fm">__pow__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span>
-    <span class="k">return</span> <span class="n">Value</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="o">**</span><span class="n">other</span><span class="p">,</span> <span class="p">(</span><span class="bp">self</span><span class="p">,),</span> <span class="p">(</span><span class="n">other</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="o">**</span><span class="p">(</span><span class="n">other</span><span class="o">-</span><span class="mi">1</span><span class="p">),))</span>
-
-<span class="k">def</span> <span class="nf">log</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-    <span class="k">return</span> <span class="n">Value</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">),</span> <span class="p">(</span><span class="bp">self</span><span class="p">,),</span> <span class="p">(</span><span class="mi">1</span><span class="o">/</span><span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">,))</span>
-
-<span class="k">def</span> <span class="nf">exp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-    <span class="k">return</span> <span class="n">Value</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">),</span> <span class="p">(</span><span class="bp">self</span><span class="p">,),</span> <span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">),))</span>
-
-<span class="k">def</span> <span class="nf">relu</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-    <span class="k">return</span> <span class="n">Value</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">),</span> <span class="p">(</span><span class="bp">self</span><span class="p">,),</span> <span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">),))</span>
-</code></pre></div>
-
+<h4>2.3 Power, Log, Exp, and ReLU</h4>
+<script src="https://gist.github.com/cmenguy/8d2676f8054497d0e22ff52419d274c5.js"></script>
 <p>Same pattern. The power rule: <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7Bd%7D%7Bdx%7D%20x%5En%20%3D%20n%20%5Ccdot%20x%5E%7Bn-1%7D" />. The log derivative: <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7Bd%7D%7Bdx%7D%20%5Cln%28x%29%20%3D%20%5Cfrac%7B1%7D%7Bx%7D" />. The exp derivative: <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7Bd%7D%7Bdx%7D%20e%5Ex%20%3D%20e%5Ex" /> (the function is its own derivative, which is why exponentials are so useful in math). ReLU: gradient is 1 if positive, 0 otherwise.</p>
-<h3>The Backward Pass</h3>
+<h4>2.4 The Backward Pass</h4>
 <p>This is the heart of backpropagation:</p>
-<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="nf">backward</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-    <span class="n">topo</span> <span class="o">=</span> <span class="p">[]</span>
-    <span class="n">visited</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
-
-    <span class="k">def</span> <span class="nf">build_topo</span><span class="p">(</span><span class="n">v</span><span class="p">):</span>
-        <span class="k">if</span> <span class="n">v</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">visited</span><span class="p">:</span>
-            <span class="n">visited</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
-            <span class="k">for</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">v</span><span class="o">.</span><span class="n">_children</span><span class="p">:</span>
-                <span class="n">build_topo</span><span class="p">(</span><span class="n">child</span><span class="p">)</span>
-            <span class="n">topo</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
-
-    <span class="n">build_topo</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
-    <span class="bp">self</span><span class="o">.</span><span class="n">grad</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="nb">reversed</span><span class="p">(</span><span class="n">topo</span><span class="p">):</span>
-        <span class="k">for</span> <span class="n">child</span><span class="p">,</span> <span class="n">local_grad</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">_children</span><span class="p">,</span> <span class="n">v</span><span class="o">.</span><span class="n">_local_grads</span><span class="p">):</span>
-            <span class="n">child</span><span class="o">.</span><span class="n">grad</span> <span class="o">+=</span> <span class="n">local_grad</span> <span class="o">*</span> <span class="n">v</span><span class="o">.</span><span class="n">grad</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/3f7d9e043fa4382d32b6f4ef969140ad.js"></script>
 <p>Two things happening here. First, a topological sort of the computation graph (DFS post-order). This gives us an ordering where every node appears after all of its children. Then we walk backwards through that order, applying the chain rule at each node.</p>
 <p>The chain rule says: if <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7B%5Cpartial%20L%7D%7B%5Cpartial%20v%7D" /> is the gradient at node $v$, and $v$ was computed from child $c$ with local gradient <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7B%5Cpartial%20v%7D%7B%5Cpartial%20c%7D" />, then:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Cfrac%7B%5Cpartial%20L%7D%7B%5Cpartial%20c%7D%20%5Cmathrel%7B%2B%7D%3D%20%5Cfrac%7B%5Cpartial%20v%7D%7B%5Cpartial%20c%7D%20%5Ccdot%20%5Cfrac%7B%5Cpartial%20L%7D%7B%5Cpartial%20v%7D" /></p>
 <p>That <code>+=</code> is key. A child node might be used by multiple parents (think of a variable used in two different expressions). Each parent contributes to the child's gradient, and they accumulate additively. This is the multivariate chain rule in action.</p>
 <p>Setting <code>self.grad = 1</code> at the top makes sense because <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7B%5Cpartial%20L%7D%7B%5Cpartial%20L%7D%20%3D%201" />: the loss's gradient with respect to itself is 1.</p>
-<h3>Helper Operations</h3>
+<h4>2.5 Helper Operations</h4>
 <p>The remaining methods define subtraction, division, and reverse operations:</p>
-<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="fm">__neg__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>       <span class="k">return</span> <span class="bp">self</span> <span class="o">*</span> <span class="o">-</span><span class="mi">1</span>
-<span class="k">def</span> <span class="fm">__radd__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span> <span class="k">return</span> <span class="bp">self</span> <span class="o">+</span> <span class="n">other</span>
-<span class="k">def</span> <span class="fm">__sub__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span>  <span class="k">return</span> <span class="bp">self</span> <span class="o">+</span> <span class="p">(</span><span class="o">-</span><span class="n">other</span><span class="p">)</span>
-<span class="k">def</span> <span class="fm">__rsub__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span> <span class="k">return</span> <span class="n">other</span> <span class="o">+</span> <span class="p">(</span><span class="o">-</span><span class="bp">self</span><span class="p">)</span>
-<span class="k">def</span> <span class="fm">__rmul__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span> <span class="k">return</span> <span class="bp">self</span> <span class="o">*</span> <span class="n">other</span>
-<span class="k">def</span> <span class="fm">__truediv__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span>  <span class="k">return</span> <span class="bp">self</span> <span class="o">*</span> <span class="n">other</span><span class="o">**-</span><span class="mi">1</span>
-<span class="k">def</span> <span class="fm">__rtruediv__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span> <span class="k">return</span> <span class="n">other</span> <span class="o">*</span> <span class="bp">self</span><span class="o">**-</span><span class="mi">1</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/f4cf73289e96fd8d0fd4eb04f6d2751e.js"></script>
 <p>Division is implemented as multiplication by the inverse (<img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20a%20%2F%20b%20%3D%20a%20%5Ccdot%20b%5E%7B-1%7D" />), so the power rule and multiplication rule handle the gradient automatically. The <code>__r*__</code> methods handle cases where a plain number is on the left side: <code>3 + value</code> calls <code>value.__radd__(3)</code>.</p>
-<h2>Model Parameters: What the Network Knows</h2>
+<h2>3. Model Parameters: What the Network Knows</h2>
 <p>Now we set up the model's parameters. These are the learnable weights that store everything the model learns during training.</p>
-<div class="codehilite"><pre><span></span><code><span class="n">n_layer</span> <span class="o">=</span> <span class="mi">1</span>       <span class="c1"># number of transformer layers</span>
-<span class="n">n_embd</span> <span class="o">=</span> <span class="mi">16</span>       <span class="c1"># embedding dimension</span>
-<span class="n">block_size</span> <span class="o">=</span> <span class="mi">16</span>   <span class="c1"># maximum context length</span>
-<span class="n">n_head</span> <span class="o">=</span> <span class="mi">4</span>        <span class="c1"># number of attention heads</span>
-<span class="n">head_dim</span> <span class="o">=</span> <span class="n">n_embd</span> <span class="o">//</span> <span class="n">n_head</span>  <span class="c1"># = 4, dimension per head</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/b5e2e0eb428fd6a15b3085574adde3c5.js"></script>
 <p>This is a tiny GPT: 1 layer, 16-dimensional embeddings, 4 attention heads. GPT-2 Small used 12 layers, 768-dimensional embeddings, and 12 heads. GPT-3 used 96 layers and 12,288 dimensions. But the architecture is identical. Everything scales.</p>
-<div class="codehilite"><pre><span></span><code><span class="n">matrix</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">nout</span><span class="p">,</span> <span class="n">nin</span><span class="p">,</span> <span class="n">std</span><span class="o">=</span><span class="mf">0.08</span><span class="p">:</span> <span class="p">[</span>
-    <span class="p">[</span><span class="n">Value</span><span class="p">(</span><span class="n">random</span><span class="o">.</span><span class="n">gauss</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">std</span><span class="p">))</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">nin</span><span class="p">)]</span>
-    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">nout</span><span class="p">)</span>
-<span class="p">]</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/04ff225b354610ab855ec32364f09805.js"></script>
 <p>This helper creates a 2D list of <code>Value</code> objects initialized from a Gaussian distribution with standard deviation 0.08. In PyTorch you'd use <code>torch.randn(nout, nin) * std</code>. The small std keeps initial values near zero, which helps training stability.</p>
-<h3>The State Dict</h3>
-<div class="codehilite"><pre><span></span><code><span class="n">state_dict</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s1">&#39;wte&#39;</span><span class="p">:</span> <span class="n">matrix</span><span class="p">(</span><span class="n">vocab_size</span><span class="p">,</span> <span class="n">n_embd</span><span class="p">),</span>
-    <span class="s1">&#39;wpe&#39;</span><span class="p">:</span> <span class="n">matrix</span><span class="p">(</span><span class="n">block_size</span><span class="p">,</span> <span class="n">n_embd</span><span class="p">),</span>
-    <span class="s1">&#39;lm_head&#39;</span><span class="p">:</span> <span class="n">matrix</span><span class="p">(</span><span class="n">vocab_size</span><span class="p">,</span> <span class="n">n_embd</span><span class="p">),</span>
-<span class="p">}</span>
-
-<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_layer</span><span class="p">):</span>
-    <span class="n">state_dict</span><span class="p">[</span><span class="sa">f</span><span class="s1">&#39;layer</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s1">.attn_wq&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">matrix</span><span class="p">(</span><span class="n">n_embd</span><span class="p">,</span> <span class="n">n_embd</span><span class="p">)</span>
-    <span class="n">state_dict</span><span class="p">[</span><span class="sa">f</span><span class="s1">&#39;layer</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s1">.attn_wk&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">matrix</span><span class="p">(</span><span class="n">n_embd</span><span class="p">,</span> <span class="n">n_embd</span><span class="p">)</span>
-    <span class="n">state_dict</span><span class="p">[</span><span class="sa">f</span><span class="s1">&#39;layer</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s1">.attn_wv&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">matrix</span><span class="p">(</span><span class="n">n_embd</span><span class="p">,</span> <span class="n">n_embd</span><span class="p">)</span>
-    <span class="n">state_dict</span><span class="p">[</span><span class="sa">f</span><span class="s1">&#39;layer</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s1">.attn_wo&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">matrix</span><span class="p">(</span><span class="n">n_embd</span><span class="p">,</span> <span class="n">n_embd</span><span class="p">)</span>
-    <span class="n">state_dict</span><span class="p">[</span><span class="sa">f</span><span class="s1">&#39;layer</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s1">.mlp_fc1&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">matrix</span><span class="p">(</span><span class="mi">4</span> <span class="o">*</span> <span class="n">n_embd</span><span class="p">,</span> <span class="n">n_embd</span><span class="p">)</span>
-    <span class="n">state_dict</span><span class="p">[</span><span class="sa">f</span><span class="s1">&#39;layer</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s1">.mlp_fc2&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">matrix</span><span class="p">(</span><span class="n">n_embd</span><span class="p">,</span> <span class="mi">4</span> <span class="o">*</span> <span class="n">n_embd</span><span class="p">)</span>
-</code></pre></div>
-
+<h4>3.1 The State Dict</h4>
+<script src="https://gist.github.com/cmenguy/9375f4cb2b923232c4cb52f55bd633ea.js"></script>
 <p>This mirrors exactly what you'd see in a PyTorch GPT model's <code>state_dict()</code>. Here's what each matrix does:</p>
-<table>
-<thead>
-<tr>
-<th>Matrix</th>
-<th>Shape</th>
-<th>Purpose</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>wte</code></td>
-<td>(27, 16)</td>
-<td>Token embedding: maps each token ID to a 16-d vector</td>
-</tr>
-<tr>
-<td><code>wpe</code></td>
-<td>(16, 16)</td>
-<td>Position embedding: maps each position to a 16-d vector</td>
-</tr>
-<tr>
-<td><code>lm_head</code></td>
-<td>(27, 16)</td>
-<td>Output projection: maps hidden states back to vocab logits</td>
-</tr>
-<tr>
-<td><code>attn_wq</code></td>
-<td>(16, 16)</td>
-<td>Query projection for attention</td>
-</tr>
-<tr>
-<td><code>attn_wk</code></td>
-<td>(16, 16)</td>
-<td>Key projection for attention</td>
-</tr>
-<tr>
-<td><code>attn_wv</code></td>
-<td>(16, 16)</td>
-<td>Value projection for attention</td>
-</tr>
-<tr>
-<td><code>attn_wo</code></td>
-<td>(16, 16)</td>
-<td>Output projection after attention heads are concatenated</td>
-</tr>
-<tr>
-<td><code>mlp_fc1</code></td>
-<td>(64, 16)</td>
-<td>First MLP layer (expand 16 -&gt; 64)</td>
-</tr>
-<tr>
-<td><code>mlp_fc2</code></td>
-<td>(16, 64)</td>
-<td>Second MLP layer (contract 64 -&gt; 16)</td>
-</tr>
-</tbody>
-</table>
+<script src="https://gist.github.com/cmenguy/290212bfc6cf5563b22496af52184b8a.js"></script>
 <p>The MLP expansion factor of 4x is standard in transformers. The original "Attention Is All You Need" paper used <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_%7Bff%7D%20%3D%202048" /> with <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_%7Bmodel%7D%20%3D%20512" />, which is the same 4:1 ratio.</p>
 <p>Finally, all parameters get flattened into a single list for the optimizer:</p>
-<div class="codehilite"><pre><span></span><code><span class="n">params</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span> <span class="k">for</span> <span class="n">mat</span> <span class="ow">in</span> <span class="n">state_dict</span><span class="o">.</span><span class="n">values</span><span class="p">()</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">mat</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">row</span><span class="p">]</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/4ebb8e74605880d96f125787fcc4a3b2.js"></script>
 <p>This gives us 4,192 parameters. GPT-2 had 117 million. Same idea, different scale.</p>
-<h2>The Model Architecture: A GPT Forward Pass</h2>
+<h2>4. The Model Architecture: A GPT Forward Pass</h2>
 <p>Now for the actual model. The <code>gpt()</code> function takes a single token and its position, runs it through the transformer, and returns logits (unnormalized scores) over the vocabulary.</p>
-<h3>Building Blocks: Linear, Softmax, RMSNorm</h3>
+<h4>4.1 Building Blocks: Linear, Softmax, RMSNorm</h4>
 <p>Before the main model, three utility functions:</p>
-<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="nf">linear</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">w</span><span class="p">):</span>
-    <span class="k">return</span> <span class="p">[</span><span class="nb">sum</span><span class="p">(</span><span class="n">wi</span> <span class="o">*</span> <span class="n">xi</span> <span class="k">for</span> <span class="n">wi</span><span class="p">,</span> <span class="n">xi</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">wo</span><span class="p">,</span> <span class="n">x</span><span class="p">))</span> <span class="k">for</span> <span class="n">wo</span> <span class="ow">in</span> <span class="n">w</span><span class="p">]</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/d45181b2e263d1c2ab0340846084592b.js"></script>
 <p>A matrix-vector multiply. For each row <code>wo</code> in weight matrix <code>w</code>, compute the dot product with input <code>x</code>. If <code>w</code> is shape (m, n) and <code>x</code> has length n, the output has length m. This is the fundamental operation in neural networks: $y = Wx$.</p>
-<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="nf">softmax</span><span class="p">(</span><span class="n">logits</span><span class="p">):</span>
-    <span class="n">max_val</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">data</span> <span class="k">for</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">logits</span><span class="p">)</span>
-    <span class="n">exps</span> <span class="o">=</span> <span class="p">[(</span><span class="n">val</span> <span class="o">-</span> <span class="n">max_val</span><span class="p">)</span><span class="o">.</span><span class="n">exp</span><span class="p">()</span> <span class="k">for</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">logits</span><span class="p">]</span>
-    <span class="n">total</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">exps</span><span class="p">)</span>
-    <span class="k">return</span> <span class="p">[</span><span class="n">e</span> <span class="o">/</span> <span class="n">total</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">exps</span><span class="p">]</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/8ef14eff35d998217a62a92e2e357c12.js"></script>
 <p>Softmax converts raw scores into a probability distribution. The formula from <a href="https://arxiv.org/abs/1706.03762">Attention Is All You Need</a>:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Ctext%7Bsoftmax%7D%28z_i%29%20%3D%20%5Cfrac%7Be%5E%7Bz_i%7D%7D%7B%5Csum_j%20e%5E%7Bz_j%7D%7D" /></p>
 <p>The <code>max_val</code> subtraction is a numerical stability trick. Since <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Ctext%7Bsoftmax%7D%28z%29%20%3D%20%5Ctext%7Bsoftmax%7D%28z%20-%20c%29" /> for any constant $c$, subtracting the max prevents overflow in the exponential. This doesn't change the result but keeps numbers in a range where <code>math.exp</code> won't explode.</p>
-<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="nf">rmsnorm</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
-    <span class="n">ms</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">xi</span> <span class="o">*</span> <span class="n">xi</span> <span class="k">for</span> <span class="n">xi</span> <span class="ow">in</span> <span class="n">x</span><span class="p">)</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
-    <span class="n">scale</span> <span class="o">=</span> <span class="p">(</span><span class="n">ms</span> <span class="o">+</span> <span class="mf">1e-5</span><span class="p">)</span> <span class="o">**</span> <span class="o">-</span><span class="mf">0.5</span>
-    <span class="k">return</span> <span class="p">[</span><span class="n">xi</span> <span class="o">*</span> <span class="n">scale</span> <span class="k">for</span> <span class="n">xi</span> <span class="ow">in</span> <span class="n">x</span><span class="p">]</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/2a8f0a99e84cc164f6c936a7d5e54236.js"></script>
 <p>RMSNorm (Root Mean Square Normalization) is a simpler alternative to LayerNorm. Instead of subtracting the mean and dividing by std (like LayerNorm), it just divides by the RMS:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Ctext%7BRMSNorm%7D%28x_i%29%20%3D%20%5Cfrac%7Bx_i%7D%7B%5Csqrt%7B%5Cfrac%7B1%7D%7Bn%7D%5Csum_%7Bj%7D%20x_j%5E2%20%2B%20%5Cepsilon%7D%7D" /></p>
 <p>The original transformer paper used LayerNorm, but most modern architectures (Llama, Gemma, etc.) switched to RMSNorm because it's cheaper and works just as well. No bias subtraction, no learned affine parameters here. The <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cepsilon%20%3D%2010%5E%7B-5%7D" /> prevents division by zero.</p>
-<h3>The GPT Function</h3>
+<h4>4.2 The GPT Function</h4>
 <p>Now the main event. I'll walk through the <code>gpt()</code> function section by section. It processes one token at a time (as opposed to a full sequence), keeping a running KV cache for previous positions.</p>
-<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="nf">gpt</span><span class="p">(</span><span class="n">token_id</span><span class="p">,</span> <span class="n">pos_id</span><span class="p">,</span> <span class="n">keys</span><span class="p">,</span> <span class="n">values</span><span class="p">):</span>
-    <span class="n">tok_emb</span> <span class="o">=</span> <span class="n">state_dict</span><span class="p">[</span><span class="s1">&#39;wte&#39;</span><span class="p">][</span><span class="n">token_id</span><span class="p">]</span>
-    <span class="n">pos_emb</span> <span class="o">=</span> <span class="n">state_dict</span><span class="p">[</span><span class="s1">&#39;wpe&#39;</span><span class="p">][</span><span class="n">pos_id</span><span class="p">]</span>
-    <span class="n">x</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="o">+</span> <span class="n">p</span> <span class="k">for</span> <span class="n">t</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">tok_emb</span><span class="p">,</span> <span class="n">pos_emb</span><span class="p">)]</span>
-    <span class="n">x</span> <span class="o">=</span> <span class="n">rmsnorm</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/9f6ee3226153a29db0f243f3c83cf3e7.js"></script>
 <p><strong>Step 1: Embedding.</strong> Look up the token embedding and position embedding, add them element-wise. This is Section 3.4 of the original paper: "We use learned embeddings to convert the input tokens and output tokens to vectors of dimension <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_%7Bmodel%7D" />. [...] we also use the usual learned positional embeddings."</p>
 <p>The sum of token + position gives the model both "what token is this?" and "where in the sequence is it?" in a single vector. Let's trace what happens when we feed in BOS (token 26) at position 0, the first step when processing "yuheng":</p>
-<div class="codehilite"><pre><span></span><code>tok_emb (wte[26]):  [+0.0821, -0.0360, -0.1205, -0.0332, ...]  (16 values)
-pos_emb (wpe[0]):   [-0.0222, -0.0696, -0.1805, +0.0569, ...]  (16 values)
-x = tok + pos:      [+0.0599, -0.1056, -0.3010, +0.0237, ...]  (element-wise add)
-x after rmsnorm:    [+0.4951, -0.8726, -2.4877, +0.1957, ...]  (normalized)
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/ce496807bd87cf5500550c923f1969e9.js"></script>
 <p>Small random numbers get added together, then RMSNorm rescales them. At initialization this is all noise, but after training these embeddings will encode meaningful character and position information. RMSNorm stabilizes the values before they enter the transformer layers.</p>
-<div class="codehilite"><pre><span></span><code>    <span class="k">for</span> <span class="n">li</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_layer</span><span class="p">):</span>
-        <span class="c1"># 1) Multi-head Attention block</span>
-        <span class="n">x_residual</span> <span class="o">=</span> <span class="n">x</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="n">rmsnorm</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
-        <span class="n">q</span> <span class="o">=</span> <span class="n">linear</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">state_dict</span><span class="p">[</span><span class="sa">f</span><span class="s1">&#39;layer</span><span class="si">{</span><span class="n">li</span><span class="si">}</span><span class="s1">.attn_wq&#39;</span><span class="p">])</span>
-        <span class="n">k</span> <span class="o">=</span> <span class="n">linear</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">state_dict</span><span class="p">[</span><span class="sa">f</span><span class="s1">&#39;layer</span><span class="si">{</span><span class="n">li</span><span class="si">}</span><span class="s1">.attn_wk&#39;</span><span class="p">])</span>
-        <span class="n">v</span> <span class="o">=</span> <span class="n">linear</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">state_dict</span><span class="p">[</span><span class="sa">f</span><span class="s1">&#39;layer</span><span class="si">{</span><span class="n">li</span><span class="si">}</span><span class="s1">.attn_wv&#39;</span><span class="p">])</span>
-        <span class="n">keys</span><span class="p">[</span><span class="n">li</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">k</span><span class="p">)</span>
-        <span class="n">values</span><span class="p">[</span><span class="n">li</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/85e00ec1d6f64106a99430c3166d9b78.js"></script>
 <p><strong>Step 2: Compute Q, K, V.</strong> This is the setup for attention. The input <code>x</code> is projected three times through different weight matrices to produce queries (Q), keys (K), and values (V). From Section 3.2.1 of the paper: "The queries, keys and values are [...] linear projections."</p>
 <p>The key and value vectors get appended to a running cache (<code>keys[li]</code>, <code>values[li]</code>), which stores the K and V vectors from all previous positions. This is the <strong>KV cache</strong> that makes autoregressive generation efficient: you don't need to recompute K and V for positions you've already processed.</p>
 <p>Continuing our trace of BOS at position 0:</p>
-<div class="codehilite"><pre><span></span><code>q (query):  [+0.0347, +0.3948, -0.3227, +0.2163, ...]  (16 values)
-k (key):    [-0.0677, -0.0466, +0.2234, -0.4468, ...]  (16 values)
-v (value):  [-0.2006, -0.1163, +0.6520, +0.1435, ...]  (16 values)
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/4252c4fd914f803acdf96642c4d6215c.js"></script>
 <p>Three different 16-d vectors from the same input. Q asks "what am I looking for?", K says "what do I contain?", V says "what information should I pass forward if attended to?"</p>
 <p>Note the <code>x_residual = x</code> before the norm. This sets up the residual connection, which we'll use after attention.</p>
-<div class="codehilite"><pre><span></span><code>        <span class="n">x_attn</span> <span class="o">=</span> <span class="p">[]</span>
-        <span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_head</span><span class="p">):</span>
-            <span class="n">hs</span> <span class="o">=</span> <span class="n">h</span> <span class="o">*</span> <span class="n">head_dim</span>
-            <span class="n">q_h</span> <span class="o">=</span> <span class="n">q</span><span class="p">[</span><span class="n">hs</span><span class="p">:</span><span class="n">hs</span><span class="o">+</span><span class="n">head_dim</span><span class="p">]</span>
-            <span class="n">k_h</span> <span class="o">=</span> <span class="p">[</span><span class="n">ki</span><span class="p">[</span><span class="n">hs</span><span class="p">:</span><span class="n">hs</span><span class="o">+</span><span class="n">head_dim</span><span class="p">]</span> <span class="k">for</span> <span class="n">ki</span> <span class="ow">in</span> <span class="n">keys</span><span class="p">[</span><span class="n">li</span><span class="p">]]</span>
-            <span class="n">v_h</span> <span class="o">=</span> <span class="p">[</span><span class="n">vi</span><span class="p">[</span><span class="n">hs</span><span class="p">:</span><span class="n">hs</span><span class="o">+</span><span class="n">head_dim</span><span class="p">]</span> <span class="k">for</span> <span class="n">vi</span> <span class="ow">in</span> <span class="n">values</span><span class="p">[</span><span class="n">li</span><span class="p">]]</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/63820b15cf57c7423f04d20a05056376.js"></script>
 <p><strong>Step 3: Split into heads.</strong> The full Q, K, V vectors (dimension 16) get split into 4 heads of dimension 4 each. This is multi-head attention: instead of one big attention operation, we run 4 smaller ones in parallel, each attending to different aspects of the input. Section 3.2.2: "Multi-head attention allows the model to jointly attend to information from different representation subspaces at different positions."</p>
-<div class="codehilite"><pre><span></span><code>            <span class="n">attn_logits</span> <span class="o">=</span> <span class="p">[</span>
-                <span class="nb">sum</span><span class="p">(</span><span class="n">q_h</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">*</span> <span class="n">k_h</span><span class="p">[</span><span class="n">t</span><span class="p">][</span><span class="n">j</span><span class="p">]</span> <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">head_dim</span><span class="p">))</span> <span class="o">/</span> <span class="n">head_dim</span><span class="o">**</span><span class="mf">0.5</span>
-                <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">k_h</span><span class="p">))</span>
-            <span class="p">]</span>
-            <span class="n">attn_weights</span> <span class="o">=</span> <span class="n">softmax</span><span class="p">(</span><span class="n">attn_logits</span><span class="p">)</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/989d4d074b348dbc1491dd00f9e6507f.js"></script>
 <p><strong>Step 4: Scaled dot-product attention scores.</strong> For each past position <code>t</code>, compute the dot product between the current query and that position's key, then scale by <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Csqrt%7Bd_k%7D" />. This is the core attention formula from the paper:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Ctext%7BAttention%7D%28Q%2C%20K%2C%20V%29%20%3D%20%5Ctext%7Bsoftmax%7D%5Cleft%28%5Cfrac%7BQK%5ET%7D%7B%5Csqrt%7Bd_k%7D%7D%5Cright%29V" /></p>
 <p>Why the <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Csqrt%7Bd_k%7D" /> scaling? The paper explains it directly (Section 3.2.1): for large <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_k" />, the dot products grow large in magnitude, pushing the softmax into regions with extremely small gradients. Dividing by <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Csqrt%7Bd_k%7D" /> keeps the variance of the dot product at 1 regardless of dimension.</p>
 <p>In our trace, this is position 0 so there's only one key in the cache (itself). The attention weight is trivially 1.0:</p>
-<div class="codehilite"><pre><span></span><code>head 0 attn_logits:  [-0.0947]  (dot product of q·k, scaled)
-head 0 attn_weights: [1.0000]   (softmax of a single value is always 1.0)
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/5c62388ac3f4e5176b731518737b5c3a.js"></script>
 <p>At position 3 processing "h", there would be 4 keys in the cache (BOS, y, u, h) and the attention weights would be a distribution over all four, like <code>[0.18, 0.31, 0.22, 0.29]</code>. That's when attention gets interesting: the model learns which previous characters are most relevant for predicting what comes next.</p>
 <p>Note there's no causal mask here. Since we process one token at a time and only store keys/values up to the current position, causality is enforced implicitly. The model can only attend to positions it has already seen.</p>
-<div class="codehilite"><pre><span></span><code>            <span class="n">head_out</span> <span class="o">=</span> <span class="p">[</span>
-                <span class="nb">sum</span><span class="p">(</span><span class="n">attn_weights</span><span class="p">[</span><span class="n">t</span><span class="p">]</span> <span class="o">*</span> <span class="n">v_h</span><span class="p">[</span><span class="n">t</span><span class="p">][</span><span class="n">j</span><span class="p">]</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">v_h</span><span class="p">)))</span>
-                <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">head_dim</span><span class="p">)</span>
-            <span class="p">]</span>
-            <span class="n">x_attn</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">head_out</span><span class="p">)</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/883b10a228110d696fcfa47e8bdef85c.js"></script>
 <p><strong>Step 5: Weighted sum of values.</strong> The attention weights (a probability distribution over all past positions) are used to compute a weighted average of the value vectors. Positions with higher attention scores contribute more to the output. Each head's output is concatenated into <code>x_attn</code>.</p>
 <p>This is the "V" part of the attention formula: after softmax gives us the weights, we multiply them against the values to get the head's output.</p>
-<div class="codehilite"><pre><span></span><code>        <span class="n">x</span> <span class="o">=</span> <span class="n">linear</span><span class="p">(</span><span class="n">x_attn</span><span class="p">,</span> <span class="n">state_dict</span><span class="p">[</span><span class="sa">f</span><span class="s1">&#39;layer</span><span class="si">{</span><span class="n">li</span><span class="si">}</span><span class="s1">.attn_wo&#39;</span><span class="p">])</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="p">[</span><span class="n">a</span> <span class="o">+</span> <span class="n">b</span> <span class="k">for</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">x_residual</span><span class="p">)]</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/fccf61cf81129956f23a6efc4e0ef047.js"></script>
 <p><strong>Step 6: Output projection and residual connection.</strong> The concatenated multi-head output passes through one more linear layer (<code>attn_wo</code>), then gets added back to the residual. Section 3.2.2: "Multi-head attention [...] <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Ctext%7BMultiHead%7D%28Q%2C%20K%2C%20V%29%20%3D%20%5Ctext%7BConcat%7D%28%5Ctext%7Bhead%7D_1%2C%20...%2C%20%5Ctext%7Bhead%7D_h%29W%5EO" />".</p>
 <p>The residual connection (<img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20x%20%3D%20x%20%2B%20%5Ctext%7Battention%7D%28x%29" />) is what makes deep transformers trainable. Without it, gradients would vanish or explode through many layers. With it, gradients have a "highway" to flow directly from the loss back to early layers.</p>
-<div class="codehilite"><pre><span></span><code>        <span class="c1"># 2) MLP block</span>
-        <span class="n">x_residual</span> <span class="o">=</span> <span class="n">x</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="n">rmsnorm</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="n">linear</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">state_dict</span><span class="p">[</span><span class="sa">f</span><span class="s1">&#39;layer</span><span class="si">{</span><span class="n">li</span><span class="si">}</span><span class="s1">.mlp_fc1&#39;</span><span class="p">])</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="p">[</span><span class="n">xi</span><span class="o">.</span><span class="n">relu</span><span class="p">()</span> <span class="k">for</span> <span class="n">xi</span> <span class="ow">in</span> <span class="n">x</span><span class="p">]</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="n">linear</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">state_dict</span><span class="p">[</span><span class="sa">f</span><span class="s1">&#39;layer</span><span class="si">{</span><span class="n">li</span><span class="si">}</span><span class="s1">.mlp_fc2&#39;</span><span class="p">])</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="p">[</span><span class="n">a</span> <span class="o">+</span> <span class="n">b</span> <span class="k">for</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">x_residual</span><span class="p">)]</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/44810c8647456aa6b2a23d038dd1eab7.js"></script>
 <p><strong>Step 7: Feed-forward (MLP) block.</strong> Section 3.3 of the paper: "Each of the layers in our encoder and decoder contains a fully connected feed-forward network [...] <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Ctext%7BFFN%7D%28x%29%20%3D%20%5Cmax%280%2C%20xW_1%20%2B%20b_1%29W_2%20%2B%20b_2" />."</p>
 <p>The pattern is: expand (16 -&gt; 64), nonlinearity (ReLU), contract (64 -&gt; 16), residual add. The expansion gives the model more "workspace" to compute nonlinear features. The original paper used ReLU; GPT-2 switched to GELU. This code uses ReLU for simplicity (since it's trivially differentiable).</p>
 <p>In the trace, the expand-relu-contract pattern looks like this:</p>
-<div class="codehilite"><pre><span></span><code>after fc1 (64d):   [+0.4231, -0.0127, +0.5659, ...]  (expanded to 64 dims)
-after relu:        32/64 neurons active                 (half are zeroed out)
-after fc2 + resid: [+0.4800, -1.0092, -2.5156, ...]   (back to 16 dims)
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/2d02b2d5722915f08da265e0cebaa69b.js"></script>
 <p>ReLU kills roughly half the neurons, which introduces sparsity. The surviving neurons carry the signal forward. The residual connection wraps the entire MLP block. No biases in this implementation, which follows modern practice (Llama, PaLM, and others all dropped biases).</p>
-<div class="codehilite"><pre><span></span><code>    <span class="n">logits</span> <span class="o">=</span> <span class="n">linear</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">state_dict</span><span class="p">[</span><span class="s1">&#39;lm_head&#39;</span><span class="p">])</span>
-    <span class="k">return</span> <span class="n">logits</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/45f78a35ed1f57e61922d823a7af424e.js"></script>
 <p><strong>Step 8: Project to vocabulary.</strong> The final hidden state gets projected to vocab-sized logits through the <code>lm_head</code> matrix. Each element of the output represents how likely that token is to come next. These are raw scores (logits), not probabilities. Here's the end of our trace:</p>
-<div class="codehilite"><pre><span></span><code><span class="n">logits</span><span class="w"> </span><span class="p">(</span><span class="mi">27</span><span class="w"> </span><span class="n">values</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="o">+</span><span class="mf">0.005</span><span class="p">,</span><span class="w"> </span><span class="o">+</span><span class="mf">0.239</span><span class="p">,</span><span class="w"> </span><span class="o">+</span><span class="mf">0.543</span><span class="p">,</span><span class="w"> </span><span class="o">-</span><span class="mf">0.477</span><span class="p">,</span><span class="w"> </span><span class="o">+</span><span class="mf">0.351</span><span class="p">,</span><span class="w"> </span><span class="p">...]</span>
-
-<span class="n">After</span><span class="w"> </span><span class="n">softmax</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">probabilities</span><span class="o">:</span>
-<span class="w">  </span><span class="n">P</span><span class="p">(</span><span class="s">&quot;o&quot;</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0.0617</span><span class="w">   </span><span class="p">(</span><span class="n">top</span><span class="w"> </span><span class="n">prediction</span><span class="p">,</span><span class="w"> </span><span class="n">wrong</span><span class="p">)</span>
-<span class="w">  </span><span class="n">P</span><span class="p">(</span><span class="s">&quot;s&quot;</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0.0545</span>
-<span class="w">  </span><span class="n">P</span><span class="p">(</span><span class="s">&quot;c&quot;</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0.0541</span>
-<span class="w">  </span><span class="n">P</span><span class="p">(</span><span class="s">&quot;z&quot;</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0.0506</span>
-<span class="w">  </span><span class="n">P</span><span class="p">(</span><span class="s">&quot;k&quot;</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0.0497</span>
-<span class="w">  </span><span class="p">...</span>
-<span class="w">  </span><span class="n">P</span><span class="p">(</span><span class="s">&quot;y&quot;</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0.0266</span><span class="w">   </span><span class="p">(</span><span class="n">actual</span><span class="w"> </span><span class="n">target</span><span class="p">)</span>
-
-<span class="n">loss</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="nf">log</span><span class="p">(</span><span class="mf">0.0266</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">3.63</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/31a681c84259c84d23f8076576cd3e2d.js"></script>
 <p>At initialization, the model's predictions are basically random. It assigns probability 0.027 to "y" (the correct next token after BOS for "yuheng"), which isn't far from uniform random chance (1/27 = 0.037). Training will push that probability up over 1000 steps. The training loop applies softmax to the logits and computes the loss.</p>
-<h2>The Training Loop</h2>
+<h2>5. The Training Loop</h2>
 <p>With the model defined, here's how it learns.</p>
-<h3>Optimizer Setup</h3>
-<div class="codehilite"><pre><span></span><code><span class="n">learning_rate</span><span class="p">,</span> <span class="n">beta1</span><span class="p">,</span> <span class="n">beta2</span><span class="p">,</span> <span class="n">eps_adam</span> <span class="o">=</span> <span class="mf">0.01</span><span class="p">,</span> <span class="mf">0.85</span><span class="p">,</span> <span class="mf">0.99</span><span class="p">,</span> <span class="mf">1e-8</span>
-<span class="n">m</span> <span class="o">=</span> <span class="p">[</span><span class="mf">0.0</span><span class="p">]</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">params</span><span class="p">)</span>  <span class="c1"># first moment (mean of gradients)</span>
-<span class="n">v</span> <span class="o">=</span> <span class="p">[</span><span class="mf">0.0</span><span class="p">]</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">params</span><span class="p">)</span>  <span class="c1"># second moment (mean of squared gradients)</span>
-</code></pre></div>
-
+<h4>5.1 Optimizer Setup</h4>
+<script src="https://gist.github.com/cmenguy/3539ead1112122a713038bd3c8a7d54a.js"></script>
 <p>Adam optimizer, initialized from scratch. Two buffers: <code>m</code> tracks the exponential moving average of gradients (momentum), <code>v</code> tracks the exponential moving average of squared gradients (adaptive learning rate per parameter). This is why Adam uses 2x the memory of vanilla SGD.</p>
-<h3>The Loop</h3>
-<div class="codehilite"><pre><span></span><code><span class="n">num_steps</span> <span class="o">=</span> <span class="mi">1000</span>
-
-<span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_steps</span><span class="p">):</span>
-    <span class="n">doc</span> <span class="o">=</span> <span class="n">docs</span><span class="p">[</span><span class="n">step</span> <span class="o">%</span> <span class="nb">len</span><span class="p">(</span><span class="n">docs</span><span class="p">)]</span>
-    <span class="n">tokens</span> <span class="o">=</span> <span class="p">[</span><span class="n">BOS</span><span class="p">]</span> <span class="o">+</span> <span class="p">[</span><span class="n">uchars</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">ch</span><span class="p">)</span> <span class="k">for</span> <span class="n">ch</span> <span class="ow">in</span> <span class="n">doc</span><span class="p">]</span> <span class="o">+</span> <span class="p">[</span><span class="n">BOS</span><span class="p">]</span>
-    <span class="n">n</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">block_size</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">tokens</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
-</code></pre></div>
-
+<h4>5.2 The Loop</h4>
+<script src="https://gist.github.com/cmenguy/e30128f68d728fa6813d6b14df0e509e.js"></script>
 <p>Each step picks one document (cycling through the shuffled list), tokenizes it to a list of integers, and wraps it with BOS tokens on both sides. For the name "yuheng", here's what tokenization produces:</p>
-<div class="codehilite"><pre><span></span><code>characters: [&#39;y&#39;, &#39;u&#39;, &#39;h&#39;, &#39;e&#39;, &#39;n&#39;, &#39;g&#39;]
-token ids:  [24,  20,  7,   4,   13,  6 ]
-with BOS:   [26,  24,  20,  7,   4,   13,  6,  26]
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/2921f0ee102baf1d354b430f13c8687e.js"></script>
 <p>The BOS at the start tells the model "a name is starting." The BOS at the end acts as an end-of-sequence signal: the model learns that after the last character of a name, BOS comes next, which during generation tells us to stop.</p>
-<div class="codehilite"><pre><span></span><code>    <span class="n">keys</span><span class="p">,</span> <span class="n">values</span> <span class="o">=</span> <span class="p">[[]</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_layer</span><span class="p">)],</span> <span class="p">[[]</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_layer</span><span class="p">)]</span>
-    <span class="n">losses</span> <span class="o">=</span> <span class="p">[]</span>
-
-    <span class="k">for</span> <span class="n">pos_id</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
-        <span class="n">token_id</span><span class="p">,</span> <span class="n">target_id</span> <span class="o">=</span> <span class="n">tokens</span><span class="p">[</span><span class="n">pos_id</span><span class="p">],</span> <span class="n">tokens</span><span class="p">[</span><span class="n">pos_id</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span>
-        <span class="n">logits</span> <span class="o">=</span> <span class="n">gpt</span><span class="p">(</span><span class="n">token_id</span><span class="p">,</span> <span class="n">pos_id</span><span class="p">,</span> <span class="n">keys</span><span class="p">,</span> <span class="n">values</span><span class="p">)</span>
-        <span class="n">probs</span> <span class="o">=</span> <span class="n">softmax</span><span class="p">(</span><span class="n">logits</span><span class="p">)</span>
-        <span class="n">loss_t</span> <span class="o">=</span> <span class="o">-</span><span class="n">probs</span><span class="p">[</span><span class="n">target_id</span><span class="p">]</span><span class="o">.</span><span class="n">log</span><span class="p">()</span>
-        <span class="n">losses</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">loss_t</span><span class="p">)</span>
-
-    <span class="n">loss</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span> <span class="o">/</span> <span class="n">n</span><span class="p">)</span> <span class="o">*</span> <span class="nb">sum</span><span class="p">(</span><span class="n">losses</span><span class="p">)</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/8ccb5131a17235f0f8520fc1770b36cc.js"></script>
 <p>The forward pass processes each token position sequentially, building up the KV cache. At each position, the model predicts the next token. For "yuheng", the training pairs look like this:</p>
-<div class="codehilite"><pre><span></span><code><span class="n">pos</span><span class="w"> </span><span class="mi">0</span><span class="o">:</span><span class="w"> </span><span class="s">&quot;BOS&quot;</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="s">&quot;y&quot;</span><span class="w">    </span><span class="p">(</span><span class="n">given</span><span class="w"> </span><span class="n">start</span><span class="o">-</span><span class="kr">of</span><span class="o">-</span><span class="n">name</span><span class="p">,</span><span class="w"> </span><span class="n">predict</span><span class="w"> </span><span class="kr">first</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span>
-<span class="n">pos</span><span class="w"> </span><span class="mi">1</span><span class="o">:</span><span class="w"> </span><span class="s">&quot;y&quot;</span><span class="w">   </span><span class="o">-&gt;</span><span class="w"> </span><span class="s">&quot;u&quot;</span><span class="w">    </span><span class="p">(</span><span class="n">given</span><span class="w"> </span><span class="n">y</span><span class="p">,</span><span class="w"> </span><span class="n">predict</span><span class="w"> </span><span class="n">next</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span>
-<span class="n">pos</span><span class="w"> </span><span class="mi">2</span><span class="o">:</span><span class="w"> </span><span class="s">&quot;u&quot;</span><span class="w">   </span><span class="o">-&gt;</span><span class="w"> </span><span class="s">&quot;h&quot;</span>
-<span class="n">pos</span><span class="w"> </span><span class="mi">3</span><span class="o">:</span><span class="w"> </span><span class="s">&quot;h&quot;</span><span class="w">   </span><span class="o">-&gt;</span><span class="w"> </span><span class="s">&quot;e&quot;</span>
-<span class="n">pos</span><span class="w"> </span><span class="mi">4</span><span class="o">:</span><span class="w"> </span><span class="s">&quot;e&quot;</span><span class="w">   </span><span class="o">-&gt;</span><span class="w"> </span><span class="s">&quot;n&quot;</span>
-<span class="n">pos</span><span class="w"> </span><span class="mi">5</span><span class="o">:</span><span class="w"> </span><span class="s">&quot;n&quot;</span><span class="w">   </span><span class="o">-&gt;</span><span class="w"> </span><span class="s">&quot;g&quot;</span>
-<span class="n">pos</span><span class="w"> </span><span class="mi">6</span><span class="o">:</span><span class="w"> </span><span class="s">&quot;g&quot;</span><span class="w">   </span><span class="o">-&gt;</span><span class="w"> </span><span class="s">&quot;BOS&quot;</span><span class="w">  </span><span class="p">(</span><span class="n">given</span><span class="w"> </span><span class="kr">last</span><span class="w"> </span><span class="n">letter</span><span class="p">,</span><span class="w"> </span><span class="n">predict</span><span class="w"> </span><span class="kd">end-</span><span class="kr">of</span><span class="o">-</span><span class="n">name</span><span class="p">)</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/91f6d88c13a0f6e989c4447c9dfe8974.js"></script>
 <p>The loss is the negative log-likelihood of the correct next token:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Cmathcal%7BL%7D%20%3D%20-%5Cfrac%7B1%7D%7Bn%7D%5Csum_%7Bt%3D1%7D%5E%7Bn%7D%20%5Clog%20P%28x_t%20%5Cmid%20x_%7B%3Ct%7D%29" /></p>
 <p>This is cross-entropy loss. If the model assigns probability 1.0 to the correct next token, <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20-%5Clog%281.0%29%20%3D%200" />, and the loss is zero. If it assigns 0.01, <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20-%5Clog%280.01%29%20%3D%204.6" />. The model is incentivized to put as much probability mass as possible on the correct next token at every position.</p>
-<h3>Backward and Adam Update</h3>
-<div class="codehilite"><pre><span></span><code>    <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
-
-    <span class="n">lr_t</span> <span class="o">=</span> <span class="n">learning_rate</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">step</span> <span class="o">/</span> <span class="n">num_steps</span><span class="p">)</span>
-
-    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">params</span><span class="p">):</span>
-        <span class="n">m</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">beta1</span> <span class="o">*</span> <span class="n">m</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">beta1</span><span class="p">)</span> <span class="o">*</span> <span class="n">p</span><span class="o">.</span><span class="n">grad</span>
-        <span class="n">v</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">beta2</span> <span class="o">*</span> <span class="n">v</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">beta2</span><span class="p">)</span> <span class="o">*</span> <span class="n">p</span><span class="o">.</span><span class="n">grad</span> <span class="o">**</span> <span class="mi">2</span>
-        <span class="n">m_hat</span> <span class="o">=</span> <span class="n">m</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">beta1</span> <span class="o">**</span> <span class="p">(</span><span class="n">step</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span>
-        <span class="n">v_hat</span> <span class="o">=</span> <span class="n">v</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">beta2</span> <span class="o">**</span> <span class="p">(</span><span class="n">step</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span>
-        <span class="n">p</span><span class="o">.</span><span class="n">data</span> <span class="o">-=</span> <span class="n">lr_t</span> <span class="o">*</span> <span class="n">m_hat</span> <span class="o">/</span> <span class="p">(</span><span class="n">v_hat</span> <span class="o">**</span> <span class="mf">0.5</span> <span class="o">+</span> <span class="n">eps_adam</span><span class="p">)</span>
-        <span class="n">p</span><span class="o">.</span><span class="n">grad</span> <span class="o">=</span> <span class="mi">0</span>
-</code></pre></div>
-
+<h4>5.3 Backward and Adam Update</h4>
+<script src="https://gist.github.com/cmenguy/7f57f3b802e0c63d6cffac7fe2f30903.js"></script>
 <p><code>loss.backward()</code> triggers the backward pass through the entire computation graph, populating <code>.grad</code> on every <code>Value</code> node. Then the Adam update rule, which was introduced in <a href="https://arxiv.org/abs/1412.6980">Kingma &amp; Ba, 2015</a>:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20m_t%20%3D%20%5Cbeta_1%20m_%7Bt-1%7D%20%2B%20%281%20-%20%5Cbeta_1%29%20g_t" /></p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20v_t%20%3D%20%5Cbeta_2%20v_%7Bt-1%7D%20%2B%20%281%20-%20%5Cbeta_2%29%20g_t%5E2" /></p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Chat%7Bm%7D_t%20%3D%20%5Cfrac%7Bm_t%7D%7B1%20-%20%5Cbeta_1%5Et%7D%2C%20%5Cquad%20%5Chat%7Bv%7D_t%20%3D%20%5Cfrac%7Bv_t%7D%7B1%20-%20%5Cbeta_2%5Et%7D" /></p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Ctheta_t%20%3D%20%5Ctheta_%7Bt-1%7D%20-%20%5Calpha_t%20%5Ccdot%20%5Cfrac%7B%5Chat%7Bm%7D_t%7D%7B%5Csqrt%7B%5Chat%7Bv%7D_t%7D%20%2B%20%5Cepsilon%7D" /></p>
 <p>The bias correction (<img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Chat%7Bm%7D" /> and <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Chat%7Bv%7D" />) compensates for the fact that <code>m</code> and <code>v</code> are initialized to zero, which biases them toward zero in early steps. The learning rate decays linearly from 0.01 to 0 over training. After updating each parameter, its gradient is reset to 0 for the next step.</p>
-<h2>Inference: Generating New Names</h2>
+<h2>6. Inference: Generating New Names</h2>
 <p>After training, the model generates text autoregressively:</p>
-<div class="codehilite"><pre><span></span><code><span class="n">temperature</span> <span class="o">=</span> <span class="mf">0.5</span>
-
-<span class="k">for</span> <span class="n">sample_idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">20</span><span class="p">):</span>
-    <span class="n">keys</span><span class="p">,</span> <span class="n">values</span> <span class="o">=</span> <span class="p">[[]</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_layer</span><span class="p">)],</span> <span class="p">[[]</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_layer</span><span class="p">)]</span>
-    <span class="n">token_id</span> <span class="o">=</span> <span class="n">BOS</span>
-    <span class="n">sample</span> <span class="o">=</span> <span class="p">[]</span>
-
-    <span class="k">for</span> <span class="n">pos_id</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">block_size</span><span class="p">):</span>
-        <span class="n">logits</span> <span class="o">=</span> <span class="n">gpt</span><span class="p">(</span><span class="n">token_id</span><span class="p">,</span> <span class="n">pos_id</span><span class="p">,</span> <span class="n">keys</span><span class="p">,</span> <span class="n">values</span><span class="p">)</span>
-        <span class="n">probs</span> <span class="o">=</span> <span class="n">softmax</span><span class="p">([</span><span class="n">l</span> <span class="o">/</span> <span class="n">temperature</span> <span class="k">for</span> <span class="n">l</span> <span class="ow">in</span> <span class="n">logits</span><span class="p">])</span>
-        <span class="n">token_id</span> <span class="o">=</span> <span class="n">random</span><span class="o">.</span><span class="n">choices</span><span class="p">(</span>
-            <span class="nb">range</span><span class="p">(</span><span class="n">vocab_size</span><span class="p">),</span> <span class="n">weights</span><span class="o">=</span><span class="p">[</span><span class="n">p</span><span class="o">.</span><span class="n">data</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">probs</span><span class="p">]</span>
-        <span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
-        <span class="k">if</span> <span class="n">token_id</span> <span class="o">==</span> <span class="n">BOS</span><span class="p">:</span>
-            <span class="k">break</span>
-        <span class="n">sample</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">uchars</span><span class="p">[</span><span class="n">token_id</span><span class="p">])</span>
-
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;sample </span><span class="si">{</span><span class="n">sample_idx</span><span class="o">+</span><span class="mi">1</span><span class="si">:</span><span class="s2">2d</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="s1">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sample</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/ee0acdbf22e73e8db26dfc2e68e93b94.js"></script>
 <p>The generation loop: start with BOS, feed it through the model, get logits, apply temperature scaling, sample the next token, repeat until BOS appears again (end of name) or we hit the max length.</p>
 <p>Temperature controls the "sharpness" of the distribution. Before softmax, each logit is divided by the temperature:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20P%28x_i%29%20%3D%20%5Cfrac%7Be%5E%7Bz_i%20%2F%20T%7D%7D%7B%5Csum_j%20e%5E%7Bz_j%20%2F%20T%7D%7D" /></p>
 <p>At $T = 1.0$, you get the raw model distribution. At $T &lt; 1.0$ (like 0.5 here), the distribution gets peakier, making the model more likely to pick high-probability tokens. At <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20T%20%5Cto%200" />, it becomes greedy (always picks the most likely token). At $T &gt; 1.0$, the distribution flattens, producing more "creative" but less coherent output.</p>
 <p><code>random.choices</code> does weighted sampling from the distribution. This is the stochastic part that gives you different outputs each time, unlike greedy decoding.</p>
-<h2>Mapping to "Attention Is All You Need"</h2>
+<h2>7. Mapping to "Attention Is All You Need"</h2>
 <p>Here's how Karpathy's ~200 lines map to the original transformer paper:</p>
-<table>
-<thead>
-<tr>
-<th>Paper Section</th>
-<th>Paper Concept</th>
-<th>microgpt.py Implementation</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>3.1</td>
-<td>Encoder-Decoder Architecture</td>
-<td>Decoder-only (GPT-style), no encoder</td>
-</tr>
-<tr>
-<td>3.2.1</td>
-<td>Scaled Dot-Product Attention</td>
-<td><code>attn_logits</code> computation with <code>/ head_dim**0.5</code></td>
-</tr>
-<tr>
-<td>3.2.2</td>
-<td>Multi-Head Attention</td>
-<td>Loop over <code>n_head</code> with split Q, K, V</td>
-</tr>
-<tr>
-<td>3.2.3</td>
-<td>Causal Masking</td>
-<td>Implicit via sequential processing + KV cache</td>
-</tr>
-<tr>
-<td>3.3</td>
-<td>Position-wise FFN</td>
-<td><code>mlp_fc1</code> (expand) -&gt; ReLU -&gt; <code>mlp_fc2</code> (contract)</td>
-</tr>
-<tr>
-<td>3.4</td>
-<td>Embeddings</td>
-<td><code>wte</code> (token) + <code>wpe</code> (position)</td>
-</tr>
-<tr>
-<td>5.3</td>
-<td>Optimizer</td>
-<td>Adam with linear LR decay</td>
-</tr>
-</tbody>
-</table>
+<script src="https://gist.github.com/cmenguy/3fac01154a1a4fc09a2e3a63854b279a.js"></script>
 <p>Key differences from the original paper:
 - <strong>Decoder-only</strong>: the paper described an encoder-decoder model for translation. GPT dropped the encoder and cross-attention, keeping only the decoder with causal self-attention.
 - <strong>RMSNorm instead of LayerNorm</strong>: simpler and cheaper. Modern LLMs almost universally use RMSNorm.
 - <strong>ReLU instead of GELU</strong>: GPT-2 used GELU, but ReLU is easier to differentiate by hand and works fine here.
 - <strong>No biases</strong>: the original paper used biases everywhere. Modern practice (Llama, PaLM, Gemma) dropped them with no loss in quality.
 - <strong>No dropout</strong>: with ~4k parameters and 32k training examples, regularization isn't the bottleneck.</p>
-<h2>What "Everything Else Is Just Efficiency" Means</h2>
+<h2>8. What "Everything Else Is Just Efficiency" Means</h2>
 <p>Karpathy's gist opens with: <em>"This file is the complete algorithm. Everything else is just efficiency."</em> That line is doing a lot of work. Here's what "everything else" means:</p>
 <p><strong>Tensor operations.</strong> This code does scalar math: each multiply is one <code>Value * Value</code>. PyTorch batches these into matrix operations on GPU, getting 1000x+ speedups. The algorithm is identical. The hardware parallelism is the efficiency.</p>
 <p><strong>Batching.</strong> This code processes one document per step. Real training packs hundreds of sequences into a batch, running them through the model in parallel. Same gradients in expectation, but much better GPU utilization.</p>
@@ -532,7 +164,7 @@ with BOS:   [26,  24,  20,  7,   4,   13,  6,  26]
 <p><strong>Parallelism.</strong> Data parallel, tensor parallel, pipeline parallel, FSDP. All of them are strategies for splitting the same computation across multiple GPUs. The fundamental operations stay the same.</p>
 <p><strong>Flash Attention.</strong> A memory-efficient reformulation of the exact same attention computation, using tiling to avoid materializing the full attention matrix. Same result, 2-4x faster.</p>
 <p>Every one of these is a performance optimization layered on top of the same core algorithm that Karpathy expressed in 200 lines of Python. If you understand this code, you understand what GPT-4, Claude, and every other transformer-based model is doing at its core. The rest is engineering.</p>
-<h2>Running It Yourself</h2>
+<h2>9. Running It Yourself</h2>
 <p>The code trains in about 30 minutes on a laptop CPU (no GPU needed). After 1000 steps, it generates plausible-looking names: things that could be English names but aren't. The loss drops from ~3.3 (random guessing across 27 tokens: <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20-%5Clog%281%2F27%29%20%5Capprox%203.3" />) to around 2.0, meaning the model is assigning roughly 7x higher probability to correct tokens than chance.</p>
 <p>You can find the full code in the <a href="https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-02-16-gpt-in-pure-python.ipynb">companion notebook</a> or grab it directly from <a href="https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95">Karpathy's gist</a>.</p>
 <p>What I took away from this exercise: the gap between "I understand transformers" and "I can implement one from scratch" is worth closing. You don't need to do it for production work. But the next time you're debugging a training run and the loss is doing something weird, or you're trying to understand why a specific hyperparameter matters, having that ground-level intuition makes a real difference. The algorithm fits in 200 lines. The understanding takes a weekend. Worth the trade.</p>

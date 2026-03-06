@@ -5,141 +5,41 @@
 <hr />
 <p>I've been spending a lot of time with Llama models at work lately, mostly prototyping, seeing where the edges are, getting a feel for what a mid-size open model can actually do in production. A few weeks ago, someone on the marketing team asked if we could get the model to write copy that sounds less like a robot and more like <em>us</em>. The kind of brand-specific voice that takes a human copywriter months to internalize. That question got stuck in my head.</p>
 <p>Then December hit and things started winding down at work, the way they always do when half the company is already mentally on PTO. I flew out to France to spend the holidays with my parents, and somewhere between the jet lag and my mom's cooking, I found myself with actual uninterrupted thinking time for the first time in months. Long walks through the village, bad Wi-Fi that kept me off Slack, and a laptop I'd told myself I wouldn't open but obviously did. What follows is the result of that Christmas week exploration, fueled less by coffee and more by vin chaud.</p>
-<h2>Why Not Just Context Engineering?</h2>
+<h2>1. Why Not Just Context Engineering?</h2>
 <p>The first thing I tried (and probably what you'd try too) was cramming everything into the prompt. System message with brand guidelines, a few examples of approved copy via few-shot, maybe RAG over a library of past campaigns. No training, no GPUs, ship it by Friday.</p>
 <p>And honestly? For a single brand with a straightforward voice, this works fine. Here's the kind of prompt I was playing with:</p>
-<div class="codehilite"><pre><span></span><code>You are a copywriter for Acme Outdoor Gear. Brand voice: rugged,
-no-nonsense, subtly humorous. Never use exclamation marks. Prefer
-short sentences. Reference the outdoors without being cliché.
-
-Examples of approved copy:
-- &quot;Rain doesn&#39;t cancel adventures. Neither does this jacket.&quot;
-- &quot;Built for the trail. Tolerated at the office.&quot;
-- &quot;Your gear should work harder than you do.&quot;
-
-Write an email subject line for our winter boot launch.
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/1ab9b1186727d3429c6eaeb74831c9d7.js"></script>
 <p>Llama 3.1 8B does a decent job with this. You get something like "Cold feet aren't part of the plan." Not bad, sounds roughly on-brand. So why bother fine-tuning?</p>
 <p>Three reasons kept pushing me past the prompt-engineering ceiling:</p>
 <p><strong>Context window budget.</strong> When you're serving 50 different brands, each with its own voice guidelines and example library, the prompt gets heavy fast. A 2,000-token brand context block times 50 brands means every request is burning tokens on instructions instead of thinking. Fine-tuning bakes the knowledge into the weights. The prompt stays lean, inference is cheaper, and latency drops.</p>
 <p><strong>Consistency at the margins.</strong> Prompting gets you 80% of the way there, but the last 20% is where brand voice actually lives. The subtle things (whether the brand uses Oxford commas, whether contractions are OK, whether humor is dry or playful) drift across generations with prompting alone. I ran 100 generations with the same prompt and kept seeing the model slip into its default "helpful assistant" voice on maybe 15-20% of them. After SFT on 500 brand-specific examples, that drop rate went to near zero.</p>
 <p><strong>Preference capture.</strong> This is the big one. Prompting can tell a model <em>what</em> to write, but it can't teach it <em>what's better</em>. In marketing, you have A/B test data: version A got 3x the click-through rate of version B. That signal is gold, and there's no way to feed it into a prompt. You need DPO or RLHF to actually learn from preference pairs, and that requires training.</p>
 <p>So the rule of thumb I landed on: if you have one brand and simple requirements, prompt engineering is the right call. If you have many brands, need tight consistency, or have preference data you want to exploit, that's when fine-tuning starts paying for itself.</p>
-<h2>The Setup</h2>
+<h2>2. The Setup</h2>
 <p>Here's the scenario I keep coming back to. You're building an AI-powered marketing platform. Customers upload their brand guidelines, past campaigns, and tone-of-voice docs. They want the LLM to generate email subject lines, ad copy, social media posts, and product descriptions that are indistinguishable from what their in-house team would write.</p>
 <p>This is a preference-heavy domain. "Good" marketing copy isn't just grammatically correct; it's persuasive, on-brand, and sometimes deliberately breaks rules for effect. That matters a lot for which fine-tuning approach you choose.</p>
 <p>Here's the quick mental model before we go deep:</p>
-<table>
-<thead>
-<tr>
-<th>Method</th>
-<th>What It Learns From</th>
-<th>Core Idea</th>
-<th>Complexity</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>SFT</td>
-<td>Gold-standard examples</td>
-<td>"Write like this"</td>
-<td>Low</td>
-</tr>
-<tr>
-<td>RLHF</td>
-<td>Human preference rankings + reward model</td>
-<td>"A human liked this better"</td>
-<td>High</td>
-</tr>
-<tr>
-<td>DPO</td>
-<td>Preference pairs directly</td>
-<td>"This is better than that"</td>
-<td>Medium</td>
-</tr>
-</tbody>
-</table>
-<h2>Supervised Fine-Tuning (SFT): Teaching by Example</h2>
+<script src="https://gist.github.com/cmenguy/3645156ccafc24b030f90be038246585.js"></script>
+<h2>3. Supervised Fine-Tuning (SFT): Teaching by Example</h2>
 <p>SFT is the workhorse. You show the model examples of what good output looks like, and it learns to imitate them. If you've ever fine-tuned a model on a dataset of prompt-completion pairs, you've done SFT.</p>
-<h3>The Math</h3>
+<h4>3.1 The Math</h4>
 <p>SFT minimizes the standard language modeling cross-entropy loss over your curated dataset. Given a dataset of $(x, y)$ pairs where $x$ is the prompt and <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20y%20%3D%20%28y_1%2C%20y_2%2C%20%5Cldots%2C%20y_T%29" /> is the target completion:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Cmathcal%7BL%7D_%7B%5Ctext%7BSFT%7D%7D%28%5Ctheta%29%20%3D%20-%5Cmathbb%7BE%7D_%7B%28x%2Cy%29%20%5Csim%20%5Cmathcal%7BD%7D%7D%20%5Cleft%5B%20%5Csum_%7Bt%3D1%7D%5E%7BT%7D%20%5Clog%20%5Cpi_%5Ctheta%28y_t%20%5Cmid%20x%2C%20y_%7B%5Clt%20t%7D%29%20%5Cright%5D" /></p>
 <p>Where <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cpi_%5Ctheta" /> is your model parameterized by <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Ctheta" />. This is just next-token prediction on your curated data. Nothing fancy, and that's the point.</p>
-<h3>When SFT Makes Sense</h3>
+<h4>3.2 When SFT Makes Sense</h4>
 <p>SFT is your go-to when you have clean, high-quality examples of the output you want. For marketing, this means curated campaign copy that's already been approved by the brand team. Think of it as cloning your best copywriter's style.</p>
 <p>The catch: SFT can only learn from positive examples. It knows what "good" looks like, but it has no concept of "this is better than that." If your training data has any noise (mediocre examples mixed in with great ones), the model learns to reproduce the average, not the best.</p>
-<h3>The Code</h3>
+<h4>3.3 The Code</h4>
 <p>Let's fine-tune a model on marketing copy using TRL's <code>SFTTrainer</code>. First, the data prep: structuring brand-specific examples as conversations:</p>
-<div class="codehilite"><pre><span></span><code><span class="kn">from</span> <span class="nn">datasets</span> <span class="kn">import</span> <span class="n">Dataset</span>
-
-<span class="c1"># Your curated marketing examples as conversations</span>
-<span class="n">raw_examples</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="p">{</span>
-        <span class="s2">&quot;messages&quot;</span><span class="p">:</span> <span class="p">[</span>
-            <span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;You are a marketing copywriter for a luxury skincare brand. Tone: sophisticated, confident, never salesy.&quot;</span><span class="p">},</span>
-            <span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;Write an email subject line for our new retinol serum launch.&quot;</span><span class="p">},</span>
-            <span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;assistant&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;Your skin has been waiting for this.&quot;</span><span class="p">},</span>
-        <span class="p">]</span>
-    <span class="p">},</span>
-    <span class="p">{</span>
-        <span class="s2">&quot;messages&quot;</span><span class="p">:</span> <span class="p">[</span>
-            <span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;You are a marketing copywriter for a luxury skincare brand. Tone: sophisticated, confident, never salesy.&quot;</span><span class="p">},</span>
-            <span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;Write a 2-sentence product description for our vitamin C moisturizer.&quot;</span><span class="p">},</span>
-            <span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;assistant&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;Radiance isn&#39;t something you chase — it&#39;s something you build. Our vitamin C complex works at the cellular level, so the glow you see is the glow you own.&quot;</span><span class="p">},</span>
-        <span class="p">]</span>
-    <span class="p">},</span>
-<span class="p">]</span>
-
-<span class="n">sft_dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_list</span><span class="p">(</span><span class="n">raw_examples</span><span class="p">)</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/4c39b29d3cd499273e36f3bfea2dfcb7.js"></script>
 <p>Now the training setup. LoRA keeps this feasible on a single GPU:</p>
-<div class="codehilite"><pre><span></span><code><span class="kn">from</span> <span class="nn">transformers</span> <span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span>
-<span class="kn">from</span> <span class="nn">peft</span> <span class="kn">import</span> <span class="n">LoraConfig</span>
-<span class="kn">from</span> <span class="nn">trl</span> <span class="kn">import</span> <span class="n">SFTConfig</span><span class="p">,</span> <span class="n">SFTTrainer</span>
-
-<span class="n">model_name</span> <span class="o">=</span> <span class="s2">&quot;meta-llama/Llama-3.1-8B-Instruct&quot;</span>
-<span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_name</span><span class="p">)</span>
-<span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
-    <span class="n">model_name</span><span class="p">,</span> <span class="n">torch_dtype</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span> <span class="n">device_map</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span>
-<span class="p">)</span>
-
-<span class="n">lora_config</span> <span class="o">=</span> <span class="n">LoraConfig</span><span class="p">(</span>
-    <span class="n">r</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
-    <span class="n">lora_alpha</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
-    <span class="n">lora_dropout</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span>
-    <span class="n">target_modules</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;q_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;v_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;k_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;o_proj&quot;</span><span class="p">],</span>
-    <span class="n">task_type</span><span class="o">=</span><span class="s2">&quot;CAUSAL_LM&quot;</span><span class="p">,</span>
-<span class="p">)</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/8678d43c9aeba8c1ce004e09163d3f49.js"></script>
 <p>And the trainer. Note the <code>max_length</code> tuned for short-form marketing copy:</p>
-<div class="codehilite"><pre><span></span><code><span class="n">training_args</span> <span class="o">=</span> <span class="n">SFTConfig</span><span class="p">(</span>
-    <span class="n">output_dir</span><span class="o">=</span><span class="s2">&quot;./sft-marketing&quot;</span><span class="p">,</span>
-    <span class="n">num_train_epochs</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
-    <span class="n">per_device_train_batch_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
-    <span class="n">gradient_accumulation_steps</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
-    <span class="n">learning_rate</span><span class="o">=</span><span class="mf">2e-4</span><span class="p">,</span>
-    <span class="n">logging_steps</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
-    <span class="n">max_length</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span>
-<span class="p">)</span>
-
-<span class="n">trainer</span> <span class="o">=</span> <span class="n">SFTTrainer</span><span class="p">(</span>
-    <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
-    <span class="n">args</span><span class="o">=</span><span class="n">training_args</span><span class="p">,</span>
-    <span class="n">train_dataset</span><span class="o">=</span><span class="n">sft_dataset</span><span class="p">,</span>
-    <span class="n">processing_class</span><span class="o">=</span><span class="n">tokenizer</span><span class="p">,</span>
-    <span class="n">peft_config</span><span class="o">=</span><span class="n">lora_config</span><span class="p">,</span>
-<span class="p">)</span>
-
-<span class="n">trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/d990d81f8adceabe5ffdaccbd13e7cfe.js"></script>
 <p>That's it. With 500-1000 curated examples per brand, you'll get a model that captures tone and style surprisingly well. SFT is the 80/20 of fine-tuning: it gets you most of the way there with the least effort.</p>
-<h2>RLHF: The Full Pipeline</h2>
+<h2>4. RLHF: The Full Pipeline</h2>
 <p>Reinforcement Learning from Human Feedback is the approach that made ChatGPT feel different from GPT-3. The idea: train a separate reward model on human preferences, then use it to guide the LLM's behavior via reinforcement learning.</p>
-<h3>The Math</h3>
+<h4>4.1 The Math</h4>
 <p>RLHF has three stages, each with its own objective.</p>
 <p><strong>Stage 1: SFT.</strong> Same as above. You start with a supervised fine-tuned model <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cpi_%7B%5Ctext%7BSFT%7D%7D" /> as your starting point.</p>
 <p><strong>Stage 2: Reward Model Training.</strong> Given pairs of responses <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%28y_w%2C%20y_l%29" /> where a human preferred <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20y_w" /> over <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20y_l" />, train a reward model <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20r_%5Cphi" /> using the Bradley-Terry preference model:</p>
@@ -148,259 +48,55 @@ Write an email subject line for our winter boot launch.
 <p><strong>Stage 3: RL Optimization.</strong> Maximize the reward while staying close to the SFT policy via a KL penalty:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Cmathcal%7BL%7D_%7B%5Ctext%7BRLHF%7D%7D%28%5Ctheta%29%20%3D%20%5Cmathbb%7BE%7D_%7Bx%20%5Csim%20%5Cmathcal%7BD%7D%2C%20y%20%5Csim%20%5Cpi_%5Ctheta%28%5Ccdot%20%5Cmid%20x%29%7D%20%5Cleft%5B%20r_%5Cphi%28x%2C%20y%29%20-%20%5Cbeta%20%5C%2C%20D_%7B%5Ctext%7BKL%7D%7D%5Cleft%28%5Cpi_%5Ctheta%28%5Ccdot%20%5Cmid%20x%29%20%5C%7C%20%5Cpi_%7B%5Ctext%7BSFT%7D%7D%28%5Ccdot%20%5Cmid%20x%29%5Cright%29%20%5Cright%5D" /></p>
 <p>The classic approach used PPO (Proximal Policy Optimization) for this stage, but modern implementations have moved on. TRL now uses RLOO (REINFORCE Leave-One-Out), which is simpler and more stable than PPO while achieving comparable results. The KL term remains critical: without it, the model collapses to reward hacking, generating degenerate text that scores high on the reward model but is gibberish to humans.</p>
-<h3>When RLHF Makes Sense</h3>
+<h4>4.2 When RLHF Makes Sense</h4>
 <p>RLHF shines when preferences are nuanced and hard to capture with static examples alone. It's the gold standard for aligning models to complex human judgment, which is exactly what "good marketing copy" requires.</p>
 <p>The problem: it's expensive. You need to train and maintain a separate reward model. The RL optimization stage adds instability. Loss curves that look like seismographs are par for the course. And you need a <em>lot</em> of preference data to train a reward model that doesn't just memorize your training set.</p>
 <p>For a marketing use case, RLHF makes sense at scale: when you have thousands of A/B tested campaigns and can build a reward model that genuinely captures what makes copy convert. For most teams, this is overkill.</p>
-<h3>The Code</h3>
+<h4>4.3 The Code</h4>
 <p>Let's build the full pipeline. First, the reward model, trained on pairs where one version of copy outperformed another:</p>
-<div class="codehilite"><pre><span></span><code><span class="kn">from</span> <span class="nn">datasets</span> <span class="kn">import</span> <span class="n">Dataset</span>
-
-<span class="c1"># Preference data: which copy performed better in A/B tests</span>
-<span class="n">preference_data</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="p">{</span>
-        <span class="s2">&quot;prompt&quot;</span><span class="p">:</span> <span class="s2">&quot;Write a flash sale email subject line for 30</span><span class="si">% o</span><span class="s2">ff sneakers.&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;chosen&quot;</span><span class="p">:</span> <span class="s2">&quot;Your favorites. 30</span><span class="si">% o</span><span class="s2">ff. Today only.&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;rejected&quot;</span><span class="p">:</span> <span class="s2">&quot;Big Sale Alert! Get 30% Off All Sneakers Now!!!&quot;</span><span class="p">,</span>
-    <span class="p">},</span>
-    <span class="p">{</span>
-        <span class="s2">&quot;prompt&quot;</span><span class="p">:</span> <span class="s2">&quot;Write a push notification for a loyalty reward.&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;chosen&quot;</span><span class="p">:</span> <span class="s2">&quot;You&#39;ve unlocked something. Check your rewards.&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;rejected&quot;</span><span class="p">:</span> <span class="s2">&quot;Congratulations! You have earned a new loyalty reward! Tap to claim.&quot;</span><span class="p">,</span>
-    <span class="p">},</span>
-<span class="p">]</span>
-
-<span class="n">reward_dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_list</span><span class="p">(</span><span class="n">preference_data</span><span class="p">)</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/fca29c7e60a2a22d1a32e70851b80c29.js"></script>
 <p>Training the reward model using TRL's <code>RewardTrainer</code>:</p>
-<div class="codehilite"><pre><span></span><code><span class="kn">from</span> <span class="nn">transformers</span> <span class="kn">import</span> <span class="n">AutoModelForSequenceClassification</span><span class="p">,</span> <span class="n">AutoTokenizer</span>
-<span class="kn">from</span> <span class="nn">trl</span> <span class="kn">import</span> <span class="n">RewardConfig</span><span class="p">,</span> <span class="n">RewardTrainer</span>
-
-<span class="n">reward_model_name</span> <span class="o">=</span> <span class="s2">&quot;meta-llama/Llama-3.1-8B-Instruct&quot;</span>
-<span class="n">reward_tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">reward_model_name</span><span class="p">)</span>
-<span class="n">reward_tokenizer</span><span class="o">.</span><span class="n">pad_token</span> <span class="o">=</span> <span class="n">reward_tokenizer</span><span class="o">.</span><span class="n">eos_token</span>
-
-<span class="n">reward_model</span> <span class="o">=</span> <span class="n">AutoModelForSequenceClassification</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
-    <span class="n">reward_model_name</span><span class="p">,</span> <span class="n">num_labels</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">torch_dtype</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span> <span class="n">device_map</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span>
-<span class="p">)</span>
-</code></pre></div>
-
-<div class="codehilite"><pre><span></span><code><span class="n">reward_training_args</span> <span class="o">=</span> <span class="n">RewardConfig</span><span class="p">(</span>
-    <span class="n">output_dir</span><span class="o">=</span><span class="s2">&quot;./reward-model-marketing&quot;</span><span class="p">,</span>
-    <span class="n">num_train_epochs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-    <span class="n">per_device_train_batch_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
-    <span class="n">learning_rate</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">,</span>
-    <span class="n">max_length</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span>
-<span class="p">)</span>
-
-<span class="n">reward_trainer</span> <span class="o">=</span> <span class="n">RewardTrainer</span><span class="p">(</span>
-    <span class="n">model</span><span class="o">=</span><span class="n">reward_model</span><span class="p">,</span>
-    <span class="n">args</span><span class="o">=</span><span class="n">reward_training_args</span><span class="p">,</span>
-    <span class="n">processing_class</span><span class="o">=</span><span class="n">reward_tokenizer</span><span class="p">,</span>
-    <span class="n">train_dataset</span><span class="o">=</span><span class="n">reward_dataset</span><span class="p">,</span>
-<span class="p">)</span>
-
-<span class="n">reward_trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/16ca81728317ffe309f01790a14ec21a.js"></script>
+<script src="https://gist.github.com/cmenguy/171def987dfc16d5466ad037047853ff.js"></script>
 <p>Now the RL stage: this is where the model learns to generate copy that scores high on the reward model. TRL's <code>RLOOTrainer</code> (REINFORCE Leave-One-Out) handles generation, scoring, and policy updates in a unified loop. First, prepare the prompt dataset:</p>
-<div class="codehilite"><pre><span></span><code><span class="kn">from</span> <span class="nn">datasets</span> <span class="kn">import</span> <span class="n">Dataset</span>
-
-<span class="n">prompts_data</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="p">{</span><span class="s2">&quot;prompt&quot;</span><span class="p">:</span> <span class="s2">&quot;Write a subject line for a summer collection launch.&quot;</span><span class="p">},</span>
-    <span class="p">{</span><span class="s2">&quot;prompt&quot;</span><span class="p">:</span> <span class="s2">&quot;Write a 1-sentence Instagram caption for a new coffee blend.&quot;</span><span class="p">},</span>
-    <span class="p">{</span><span class="s2">&quot;prompt&quot;</span><span class="p">:</span> <span class="s2">&quot;Write a CTA button label for a free trial signup.&quot;</span><span class="p">},</span>
-    <span class="p">{</span><span class="s2">&quot;prompt&quot;</span><span class="p">:</span> <span class="s2">&quot;Write a 1-sentence product teaser for wireless earbuds.&quot;</span><span class="p">},</span>
-<span class="p">]</span>
-
-<span class="n">prompt_dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_list</span><span class="p">(</span><span class="n">prompts_data</span><span class="p">)</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/01723f921cdcf80d8b81cf37e747c5bd.js"></script>
 <p>Configure and run the RLOO trainer: it generates multiple completions per prompt and uses the leave-one-out baseline to reduce variance:</p>
-<div class="codehilite"><pre><span></span><code><span class="kn">from</span> <span class="nn">transformers</span> <span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span>
-<span class="kn">from</span> <span class="nn">trl</span> <span class="kn">import</span> <span class="n">RLOOConfig</span><span class="p">,</span> <span class="n">RLOOTrainer</span>
-
-<span class="n">rl_model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
-    <span class="s2">&quot;./sft-marketing&quot;</span><span class="p">,</span> <span class="n">torch_dtype</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span> <span class="n">device_map</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span>
-<span class="p">)</span>
-<span class="n">rl_tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_name</span><span class="p">)</span>
-<span class="n">rl_tokenizer</span><span class="o">.</span><span class="n">pad_token</span> <span class="o">=</span> <span class="n">rl_tokenizer</span><span class="o">.</span><span class="n">eos_token</span>
-
-<span class="n">rloo_config</span> <span class="o">=</span> <span class="n">RLOOConfig</span><span class="p">(</span>
-    <span class="n">output_dir</span><span class="o">=</span><span class="s2">&quot;./rloo-marketing&quot;</span><span class="p">,</span>
-    <span class="n">per_device_train_batch_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
-    <span class="n">num_generations</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>           <span class="c1"># completions per prompt</span>
-    <span class="n">max_completion_length</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>
-    <span class="n">learning_rate</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">,</span>
-    <span class="n">num_train_epochs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-    <span class="n">logging_steps</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-    <span class="n">beta</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span>                   <span class="c1"># KL penalty coefficient</span>
-<span class="p">)</span>
-
-<span class="n">rloo_trainer</span> <span class="o">=</span> <span class="n">RLOOTrainer</span><span class="p">(</span>
-    <span class="n">config</span><span class="o">=</span><span class="n">rloo_config</span><span class="p">,</span>
-    <span class="n">model</span><span class="o">=</span><span class="n">rl_model</span><span class="p">,</span>
-    <span class="n">reward_model</span><span class="o">=</span><span class="n">reward_model</span><span class="p">,</span>
-    <span class="n">processing_class</span><span class="o">=</span><span class="n">rl_tokenizer</span><span class="p">,</span>
-    <span class="n">reward_processing_class</span><span class="o">=</span><span class="n">reward_tokenizer</span><span class="p">,</span>
-    <span class="n">train_dataset</span><span class="o">=</span><span class="n">prompt_dataset</span><span class="p">,</span>
-<span class="p">)</span>
-
-<span class="n">rloo_trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/c302acc23d13ff303fcfe0625d7f6b1f.js"></script>
 <p>That's still a lot of moving parts: two models, generation during training, and hyperparameters that interact in non-obvious ways. RLOO is more stable than the old PPO approach, but the fundamental complexity of reward-model-guided RL remains. This is why DPO exists.</p>
-<h2>DPO: The Pragmatist's Choice</h2>
+<h2>5. DPO: The Pragmatist's Choice</h2>
 <p>Direct Preference Optimization is the "what if we just... skipped the reward model?" approach. Published in 2023, DPO showed that you can optimize directly on preference pairs without ever training a separate reward model or running RL. It's mathematically equivalent to RLHF under certain assumptions, but dramatically simpler to implement.</p>
-<h3>The Math</h3>
+<h4>5.1 The Math</h4>
 <p>The key insight of DPO: the optimal policy under the RLHF objective has a closed-form relationship with the reward function. Instead of learning <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20r_%5Cphi" /> and then optimizing <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cpi_%5Ctheta" /> against it, DPO reparameterizes the reward in terms of the policy itself:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20r%28x%2C%20y%29%20%3D%20%5Cbeta%20%5Clog%20%5Cfrac%7B%5Cpi_%5Ctheta%28y%20%5Cmid%20x%29%7D%7B%5Cpi_%7B%5Ctext%7Bref%7D%7D%28y%20%5Cmid%20x%29%7D%20%2B%20%5Cbeta%20%5Clog%20Z%28x%29" /></p>
 <p>Where <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cpi_%7B%5Ctext%7Bref%7D%7D" /> is the reference policy (your SFT model) and $Z(x)$ is a partition function that cancels out in the preference comparison. Substituting into the Bradley-Terry model gives the DPO loss:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Cmathcal%7BL%7D_%7B%5Ctext%7BDPO%7D%7D%28%5Ctheta%29%20%3D%20-%5Cmathbb%7BE%7D_%7B%28x%2C%20y_w%2C%20y_l%29%20%5Csim%20%5Cmathcal%7BD%7D%7D%20%5Cleft%5B%20%5Clog%20%5Csigma%20%5Cleft%28%20%5Cbeta%20%5Clog%20%5Cfrac%7B%5Cpi_%5Ctheta%28y_w%20%5Cmid%20x%29%7D%7B%5Cpi_%7B%5Ctext%7Bref%7D%7D%28y_w%20%5Cmid%20x%29%7D%20-%20%5Cbeta%20%5Clog%20%5Cfrac%7B%5Cpi_%5Ctheta%28y_l%20%5Cmid%20x%29%7D%7B%5Cpi_%7B%5Ctext%7Bref%7D%7D%28y_l%20%5Cmid%20x%29%7D%20%5Cright%29%20%5Cright%5D" /></p>
 <p>Read it like this: push up the probability of the preferred response <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20y_w" /> relative to the reference model, while pushing down the probability of the rejected response <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20y_l" />, all modulated by <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cbeta" />.</p>
-<h3>When DPO Makes Sense</h3>
+<h4>5.2 When DPO Makes Sense</h4>
 <p>DPO is the sweet spot for most production fine-tuning. You get preference learning without the infrastructure complexity of RLHF. No reward model to train and serve. No PPO instability. Just preference pairs and a single training run.</p>
 <p>For marketing, this is particularly appealing. You likely have A/B test results, editorial feedback, and brand compliance reviews, all natural sources of "this version is better than that version" data. DPO consumes this directly.</p>
-<h3>The Code</h3>
+<h4>5.3 The Code</h4>
 <p>DPO needs an SFT model as the starting point (the reference policy) and a dataset of preference pairs. The data is the same format we used for the reward model:</p>
-<div class="codehilite"><pre><span></span><code><span class="kn">from</span> <span class="nn">datasets</span> <span class="kn">import</span> <span class="n">Dataset</span>
-
-<span class="n">dpo_data</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="p">{</span>
-        <span class="s2">&quot;prompt&quot;</span><span class="p">:</span> <span class="s2">&quot;Write a homepage hero headline for an eco-friendly cleaning brand.&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;chosen&quot;</span><span class="p">:</span> <span class="s2">&quot;Clean home. Clean conscience.&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;rejected&quot;</span><span class="p">:</span> <span class="s2">&quot;Our All-Natural Cleaning Products Are Good for You and the Planet!&quot;</span><span class="p">,</span>
-    <span class="p">},</span>
-    <span class="p">{</span>
-        <span class="s2">&quot;prompt&quot;</span><span class="p">:</span> <span class="s2">&quot;Write a cart abandonment email subject line.&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;chosen&quot;</span><span class="p">:</span> <span class="s2">&quot;Still thinking it over?&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;rejected&quot;</span><span class="p">:</span> <span class="s2">&quot;You Left Items in Your Cart! Complete Your Purchase Now!&quot;</span><span class="p">,</span>
-    <span class="p">},</span>
-    <span class="p">{</span>
-        <span class="s2">&quot;prompt&quot;</span><span class="p">:</span> <span class="s2">&quot;Write a loyalty program welcome message.&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;chosen&quot;</span><span class="p">:</span> <span class="s2">&quot;You&#39;re in. Here&#39;s what that means.&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;rejected&quot;</span><span class="p">:</span> <span class="s2">&quot;Welcome to Our Amazing Rewards Program! Start Earning Points Today!&quot;</span><span class="p">,</span>
-    <span class="p">},</span>
-<span class="p">]</span>
-
-<span class="n">dpo_dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_list</span><span class="p">(</span><span class="n">dpo_data</span><span class="p">)</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/97480140bcf1e859ec087c65cd69fc4b.js"></script>
 <p>The training setup is refreshingly simple: one model, one trainer, one loss function:</p>
-<div class="codehilite"><pre><span></span><code><span class="kn">from</span> <span class="nn">transformers</span> <span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span>
-<span class="kn">from</span> <span class="nn">peft</span> <span class="kn">import</span> <span class="n">LoraConfig</span>
-<span class="kn">from</span> <span class="nn">trl</span> <span class="kn">import</span> <span class="n">DPOConfig</span><span class="p">,</span> <span class="n">DPOTrainer</span>
-
-<span class="n">model_name</span> <span class="o">=</span> <span class="s2">&quot;meta-llama/Llama-3.1-8B-Instruct&quot;</span>
-<span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_name</span><span class="p">)</span>
-<span class="n">tokenizer</span><span class="o">.</span><span class="n">pad_token</span> <span class="o">=</span> <span class="n">tokenizer</span><span class="o">.</span><span class="n">eos_token</span>
-
-<span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
-    <span class="n">model_name</span><span class="p">,</span> <span class="n">torch_dtype</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span> <span class="n">device_map</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span>
-<span class="p">)</span>
-
-<span class="n">lora_config</span> <span class="o">=</span> <span class="n">LoraConfig</span><span class="p">(</span>
-    <span class="n">r</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
-    <span class="n">lora_alpha</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
-    <span class="n">lora_dropout</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span>
-    <span class="n">target_modules</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;q_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;v_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;k_proj&quot;</span><span class="p">,</span> <span class="s2">&quot;o_proj&quot;</span><span class="p">],</span>
-    <span class="n">task_type</span><span class="o">=</span><span class="s2">&quot;CAUSAL_LM&quot;</span><span class="p">,</span>
-<span class="p">)</span>
-</code></pre></div>
-
-<div class="codehilite"><pre><span></span><code><span class="n">dpo_training_args</span> <span class="o">=</span> <span class="n">DPOConfig</span><span class="p">(</span>
-    <span class="n">output_dir</span><span class="o">=</span><span class="s2">&quot;./dpo-marketing&quot;</span><span class="p">,</span>
-    <span class="n">num_train_epochs</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
-    <span class="n">per_device_train_batch_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
-    <span class="n">gradient_accumulation_steps</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
-    <span class="n">learning_rate</span><span class="o">=</span><span class="mf">5e-5</span><span class="p">,</span>
-    <span class="n">beta</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span>  <span class="c1"># controls KL penalty strength</span>
-    <span class="n">max_length</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span>
-    <span class="n">logging_steps</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
-<span class="p">)</span>
-
-<span class="n">dpo_trainer</span> <span class="o">=</span> <span class="n">DPOTrainer</span><span class="p">(</span>
-    <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
-    <span class="n">args</span><span class="o">=</span><span class="n">dpo_training_args</span><span class="p">,</span>
-    <span class="n">train_dataset</span><span class="o">=</span><span class="n">dpo_dataset</span><span class="p">,</span>
-    <span class="n">processing_class</span><span class="o">=</span><span class="n">tokenizer</span><span class="p">,</span>
-    <span class="n">peft_config</span><span class="o">=</span><span class="n">lora_config</span><span class="p">,</span>
-<span class="p">)</span>
-
-<span class="n">dpo_trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/4a156f4cb9e040a61cc7357441693386.js"></script>
+<script src="https://gist.github.com/cmenguy/fb0f68657ed0790557fbc4bc5ca6a12b.js"></script>
 <p>Compare this to the RLHF pipeline above. Same preference data, same end goal, a fraction of the complexity.</p>
-<h2>The Comparison: What Actually Works for Marketing</h2>
+<h2>6. The Comparison: What Actually Works for Marketing</h2>
 <p>Let's put these side by side for the marketing fine-tuning scenario:</p>
-<table>
-<thead>
-<tr>
-<th>Dimension</th>
-<th>SFT</th>
-<th>RLHF</th>
-<th>DPO</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Data needed</strong></td>
-<td>Curated examples (500-1k)</td>
-<td>Preference pairs (5k+) + SFT data</td>
-<td>Preference pairs (1k+) + SFT data</td>
-</tr>
-<tr>
-<td><strong>Training complexity</strong></td>
-<td>Single training run</td>
-<td>3-stage pipeline</td>
-<td>2-stage pipeline (SFT then DPO)</td>
-</tr>
-<tr>
-<td><strong>GPU memory</strong></td>
-<td>1 model</td>
-<td>3 models simultaneously</td>
-<td>2 models (policy + reference)</td>
-</tr>
-<tr>
-<td><strong>Stability</strong></td>
-<td>Very stable</td>
-<td>PPO can diverge</td>
-<td>Stable</td>
-</tr>
-<tr>
-<td><strong>Captures preferences</strong></td>
-<td>No (only positive examples)</td>
-<td>Yes (full preference modeling)</td>
-<td>Yes (direct preference optimization)</td>
-</tr>
-<tr>
-<td><strong>Time to production</strong></td>
-<td>Days</td>
-<td>Weeks</td>
-<td>Days</td>
-</tr>
-<tr>
-<td><strong>When to use</strong></td>
-<td>You have gold examples, preferences don't matter</td>
-<td>Scale with rich preference signal</td>
-<td>You have preference data, want simplicity</td>
-</tr>
-</tbody>
-</table>
-<h3>My Recommendation for Marketing</h3>
+<script src="https://gist.github.com/cmenguy/1f8555096f6daaf97ead0d0b02da7be0.js"></script>
+<h4>6.1 My Recommendation for Marketing</h4>
 <p><strong>Start with SFT. Graduate to DPO. Reach for RLHF only if you have to.</strong></p>
 <p>Here's why, stage by stage:</p>
 <p><strong>Phase 1: SFT to capture brand voice.</strong> Collect 500-1000 examples of approved marketing copy per customer. Email subjects, product descriptions, social posts, all tagged with the prompt that generated them. Fine-tune with LoRA. This alone gets you 80% of the way to sounding like the brand.</p>
 <p><strong>Phase 2: DPO to learn preferences.</strong> Once you have SFT running, start collecting preference data. This is natural in marketing: A/B test results (version A got 3x clicks), editorial reviews (the brand team picked option 2), compliance flags (this version violated guidelines). Feed these as preference pairs into DPO. The model learns <em>why</em> one version is better than another, not just <em>what</em> good copy looks like.</p>
 <p><strong>Phase 3: RLHF only at scale.</strong> If you're running millions of campaigns across hundreds of brands and have a genuine signal for what converts, a dedicated reward model starts to make sense. It can generalize across brands and capture patterns that individual preference pairs can't. But you need the data volume and the engineering team to support it.</p>
 <p>For most teams starting out, SFT + DPO is the right answer. You get preference learning, training stability, and a pipeline that a single ML engineer can own. RLHF is a great system when you grow into it; it's a terrible starting point.</p>
-<h2>The Hidden Variable: Data Quality</h2>
+<h2>7. The Hidden Variable: Data Quality</h2>
 <p>None of this matters if your data is garbage. A few hard-won lessons:</p>
 <p><strong>For SFT data:</strong> only include examples you'd be proud to show a client. One mediocre example teaches the model more bad habits than ten good examples can fix. Have your best copywriter review every training example.</p>
 <p><strong>For preference pairs:</strong> the margin matters. "Slightly better" pairs teach less than "clearly better" pairs. When collecting A/B test data, filter for cases where one version significantly outperformed the other. A 51/49 click split is noise, not signal.</p>
 <p><strong>For both:</strong> diversity beats volume. 500 examples across 10 different copy formats (emails, ads, social, product descriptions) will outperform 2000 examples of just email subject lines. The model needs to learn the brand voice, not just one template.</p>
-<h2>Wrapping Up</h2>
+<h2>8. Wrapping Up</h2>
 <p>SFT teaches your model what good looks like. DPO teaches it what <em>better</em> looks like. RLHF builds a full preference engine. For customer-specific marketing fine-tuning, the SFT-then-DPO pipeline gives you the best ratio of capability to complexity. Start there, measure what you're getting, and scale up the sophistication only when the data and the business justify it.</p>
 <p>The code in this post (and the companion notebook) uses TRL throughout. It's become the de facto library for all three approaches, and keeping your entire fine-tuning stack in one framework means less glue code and fewer surprises when you upgrade.</p>
 <hr />

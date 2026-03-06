@@ -6,7 +6,7 @@ I've been a senior IC in ML engineering for years. I know what that identity fee
 
 By the time I got on the flight back home in early January, I'd stopped calling it a "productivity tool" in my head. I was calling it a fundamental shift. And I was having a genuine identity crisis about what it means for me, for my team, and for this entire profession.
 
-## Landing on a New Continent
+## 1. Landing on a New Continent
 
 On medieval maps, when cartographers reached the edge of the known world (the parts no explorer had returned from yet), they'd scrawl a warning in the blank space: *Hic sunt dracones*. Here be dragons. It wasn't a statement about actual dragons. It was an admission: we don't know what's out there, and it might be dangerous.
 
@@ -16,79 +16,39 @@ That's where we are with agentic AI. Most people (including me until recently) a
 
 The frontier isn't autocomplete. The frontier is *agency*: AI systems that can hold context across an entire codebase, make multi-step decisions, run commands, verify their own output, and iterate until the job is done. That changes everything, and not everyone has realized it yet.
 
-## The Code Analogy: From Functions to Orchestrators
+## 2. The Code Analogy: From Functions to Orchestrators
 
 Here's a way to think about what's happening, in terms we understand. For most of software engineering history, the job has been writing functions. You take a spec, you decompose it into components, you implement each piece, you wire them together. Senior engineers are good at this because they've built enough systems to know where the abstractions should go.
 
 Think of the old model like this:
 
-```python
-class SeniorEngineer:
-    def __init__(self, domain_knowledge, years_of_experience):
-        self.knowledge = domain_knowledge
-        self.experience = years_of_experience
-        self.tasks = []
 
-    def work(self, ticket):
-        spec = self.decompose(ticket)
-        for component in spec:
-            code = self.implement(component)
-            self.review(code)
-            self.test(code)
-        return self.ship()
-```
+https://gist.github.com/cmenguy/77c0c33c7185b07612d847ee1c225b62
+
 
 You are the loop. You decompose, implement, review, test, ship. Your value is in the quality of each step and your judgment about what to build.
 
 Now here's what the agentic model looks like:
 
-```python
-class SeniorEngineer:
-    def __init__(self, domain_knowledge, years_of_experience):
-        self.knowledge = domain_knowledge
-        self.experience = years_of_experience
-        self.agents = [ClaudeCode(), Cursor(), Copilot()]
 
-    def work(self, ticket):
-        intent = self.clarify_customer_impact(ticket)
-        plan = self.architect(intent)
-        for task in plan:
-            result = self.delegate_and_verify(task, self.agents)
-            if not self.meets_bar(result):
-                result = self.redirect(task, self.agents)
-        return self.measure_customer_outcome()
-```
+https://gist.github.com/cmenguy/eca6e481f0a1fae6d8e4927c327d34d9
+
 
 You're no longer the loop. You're the orchestrator. Your value shifts from "can you write this code" to "do you know what code should exist, why, and how to verify it's correct." The implementing is increasingly delegated. The judgment, architecture, and customer-facing intent are what remain uniquely yours.
 
 This isn't hypothetical. Here's what my actual workflow looks like now with Claude Code:
 
-```bash
-# Old workflow: manually implement a feature
-git checkout -b feature/add-rate-limiting
-# ... spend 2-3 hours writing middleware, tests, config ...
-vim src/middleware/rate_limiter.py
-vim tests/test_rate_limiter.py
 
-# New workflow: describe intent, verify output
-claude "Add token-bucket rate limiting to the /api/generate endpoint.
-       Use Redis for distributed state. Add integration tests.
-       Make sure it respects the per-org tier limits in our config."
+https://gist.github.com/cmenguy/cf3625be9669e08af1c30ae30f83ffcf
 
-# I spend my time on:
-# 1. Was this the right thing to build?
-# 2. Does the implementation match our architecture?
-# 3. Does it actually solve the customer problem?
-# 4. What are the edge cases the agent missed?
-```
 
 The time I save on implementation goes straight into customer discovery, architecture review, and cross-team coordination. That's the real shift.
 
-## What This Means for Everyone
+## 3. What This Means for Everyone
 
 This reorganization of labor ripples out differently depending on where you sit. Let me be honest about what I'm seeing: not the optimistic conference talk version, the real version.
 
-### Senior ICs
+#### 3.1 Senior ICs
 
 This is us. The identity crisis crew. For a long time, senior ICs derived status and job security from being the person who could build the hard thing. You knew the codebase intimately. You could debug that race condition nobody else could reproduce. You had the muscle memory of ten thousand pull requests.
 
@@ -98,40 +58,33 @@ What doesn't get arbitraged: knowing *what* to build. Knowing which of the five 
 
 The senior IC role doesn't disappear; it evolves. Less "I shipped this feature" and more "I made sure the right features got shipped correctly and we measured the impact." The scope expands from code to customer. If that sounds more like a tech lead or an architect, that's because the boundary between those roles is dissolving.
 
-### Junior ICs
+#### 3.2 Junior ICs
 
 Here's the counterintuitive part: I think agentic AI is *better* for junior engineers than people expect, but in a specific way. The boring ramp-up period (learning the codebase, understanding build systems, writing your first CRUD endpoints) gets dramatically shorter. A junior engineer with Cursor can be productive on day one in a way that wasn't possible before.
 
 The risk is that they skip the understanding phase. You can ship code you don't understand. You can land PRs that pass CI but that you couldn't explain in a code review. And that's where senior ICs matter more than ever: not as implementers, but as teachers and quality gates. Code review becomes less about style nits and more about "do you actually understand what this does and why."
 
-### Product
+#### 3.3 Product
 
 Product managers are about to have a very interesting few years. The cost of building a prototype is dropping toward zero, which means the cost of *testing an idea* is dropping toward zero. A PM who can articulate a clear spec can now get a working prototype from an agentic coding session in hours, not sprint cycles.
 
 This shifts the bottleneck from engineering capacity to product judgment. The question stops being "can we build this in time" and starts being "should we build this at all." PMs who are good at customer discovery and ruthless prioritization will thrive. PMs who were basically project managers tracking Jira velocity will struggle.
 
-### Engineering Leadership
+#### 3.4 Engineering Leadership
 
 The org chart implications are real and uncomfortable. If one senior engineer with agentic tools can do the work of three, what does that mean for team size? For hiring plans? For career ladders built around managing larger teams?
 
 I don't think the answer is "fire two-thirds of your engineers." I think the answer is "the same team can now attempt things that were previously out of scope." The limiting factor moves from "how many engineers do we have" to "how many good ideas do we have and how fast can we validate them." Engineering leaders who reorient around speed-of-learning rather than headcount-per-project will build better organizations.
 
-## The AI/ML Engineering Angle
+## 4. The AI/ML Engineering Angle
 
 This is where it gets personal for me. I'm an ML engineer. My specialty is supposed to be the hard stuff: training loops, model optimization, infrastructure, evaluation harnesses. For years, this was a high barrier-to-entry domain. You needed to understand linear algebra, distributed systems, GPU memory management, and the dark arts of hyperparameter tuning. That scarcity was part of our value.
 
 Agentic AI is lowering that barrier fast. Here's an example. This is what deploying a model with vLLM used to require: understanding CUDA, memory management, quantization trade-offs.
 
-```bash
-# The old way: you needed to know all of this
-python -m vllm.entrypoints.openai.api_server \
-    --model meta-llama/Llama-3.1-8B-Instruct \
-    --tensor-parallel-size 2 \
-    --gpu-memory-utilization 0.9 \
-    --max-model-len 8192 \
-    --quantization awq \
-    --enforce-eager
-```
+
+https://gist.github.com/cmenguy/3eadd2826a60b1d63ae68918fff17ad0
+
 
 Each of those flags represents a decision that used to require domain expertise. Tensor parallelism? You need to know your GPU topology. Memory utilization at 0.9? You need to understand KV cache sizing. AWQ quantization? You need to know the accuracy-latency trade-off for your specific use case.
 
@@ -143,7 +96,7 @@ The net effect for ML engineers is actually a win if you lean into it. I can now
 
 The identity shift for ML engineers specifically: less "I'm the person who knows how to train models" and more "I'm the person who knows how to build AI systems that reliably deliver value." The scope expands from model to product.
 
-## The Tools in January 2026
+## 5. The Tools in January 2026
 
 Everyone I talk to is using *something*. Things are moving so fast that what's best today might not be best next month, but here's my honest read of where things stand as I write this:
 
@@ -157,7 +110,7 @@ Everyone I talk to is using *something*. Things are moving so fast that what's b
 
 My personal stack: Claude Code for big tasks and architecture-level work, Cursor for in-editor flow state, Antigravity when I want to quickly test something with a different model without fiddling with API keys. Your mileage will vary. The best tool is the one that fits your workflow.
 
-## Where I Go From Here
+## 6. Where I Go From Here
 
 I came back from the holidays with a decision. I'm going to stop defining my value by the code I write and start defining it by the outcomes I drive. That sounds like corporate-speak, so let me be specific.
 

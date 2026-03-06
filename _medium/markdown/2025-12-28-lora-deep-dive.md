@@ -14,7 +14,7 @@ But a few days ago I got into a discussion with a colleague about fine-tuning ef
 
 So I blocked out a weekend, pulled up the [original paper](https://arxiv.org/abs/2106.09685), and went through the math line by line. What follows is what I wish someone had explained to me before I started using LoRA in production.
 
-## The Problem LoRA Solves
+## 1. The Problem LoRA Solves
 
 Let's start with why LoRA exists. A model like Llama 3.1 8B has roughly 8 billion parameters. Full fine-tuning means updating all of them: every weight in every layer gets a gradient, an optimizer state, and a momentum term. For Adam, that's 3x the model size in memory just for the optimizer. On a Llama 8B in float32, that's:
 
@@ -24,7 +24,7 @@ Add the model weights, gradients, and activations, and you're looking at needing
 
 LoRA's insight: when you fine-tune a large model on a specific task, the weight updates don't use the full dimensionality of the weight matrices. The *change* in weights during fine-tuning is low-rank. It lies in a much smaller subspace than the original weights. So instead of updating a giant matrix, you can decompose the update into two small matrices and only train those.
 
-## The Core Idea: Low-Rank Decomposition
+## 2. The Core Idea: Low-Rank Decomposition
 
 Here's the key equation. For a pretrained weight matrix ![equation](https://latex.codecogs.com/png.latex?\inline%20W_0%20%5Cin%20%5Cmathbb%7BR%7D%5E%7Bd%20%5Ctimes%20k%7D), LoRA constrains the update ![equation](https://latex.codecogs.com/png.latex?\inline%20%5CDelta%20W) to be a low-rank decomposition:
 
@@ -36,30 +36,13 @@ That's it. That's the whole trick. Instead of learning a ![equation](https://lat
 
 Let me make this concrete with a picture. Say you have a weight matrix in a transformer attention layer with $d = 4096$ and $k = 4096$:
 
-```
-Full fine-tuning:                  LoRA (r=8):
 
-Update ΔW (4096 × 4096)           B (4096 × 8)    A (8 × 4096)
+https://gist.github.com/cmenguy/c27c1db10428480df5d6a325329c4878
 
-┌─────────────────────┐            ┌──┐             ┌─────────────────────┐
-│                     │            │  │             │                     │
-│                     │            │  │             └─────────────────────┘
-│                     │            │  │              8 × 4096 = 32,768
-│    16,777,216       │            │  │              parameters
-│    parameters       │            │  │
-│                     │            │  │
-│                     │            │  │
-│                     │            │  │
-└─────────────────────┘            └──┘
-                                    4096 × 8 = 32,768
-                                    parameters
-
-Total full: 16,777,216             Total LoRA: 65,536 (0.4%)
-```
 
 With $r = 8$, you're training 65,536 parameters instead of 16.7 million — a **256x reduction** for this single layer. Across the entire model, LoRA typically trains 0.1-1% of the total parameters.
 
-## The Forward Pass: How It Actually Computes
+## 3. The Forward Pass: How It Actually Computes
 
 During a forward pass, the original weight and the LoRA update combine like this. For an input $x$:
 
@@ -67,86 +50,43 @@ During a forward pass, the original weight and the LoRA update combine like this
 
 Here's what that looks like step by step:
 
-```
-Input x ─────────────────┬───────────────────── Output h
-(batch × k)              │                      (batch × d)
-                         │
-              ┌──────────┴──────────┐
-              │                     │
-         Pretrained path       LoRA path
-              │                     │
-           W₀ · x              B · (A · x)
-         (frozen)           (trainable)
-              │                     │
-              └──────────┬──────────┘
-                         │
-                        (+)  ← element-wise add
-                         │
-                      Output h
-```
+
+https://gist.github.com/cmenguy/3475a427558abec8902bef0307e2e148
+
 
 The pretrained weights ![equation](https://latex.codecogs.com/png.latex?\inline%20W_0) stay **completely frozen**: no gradients, no optimizer states, no memory overhead. Only $B$ and $A$ receive gradients. This is why LoRA is so memory-efficient: you only store optimizer states for the tiny adapter matrices, not the full model.
 
 Let's implement this from scratch in PyTorch so you can see exactly what's happening:
 
-```python
-import torch
-import torch.nn as nn
 
-class LoRALinear(nn.Module):
-    def __init__(self, original_layer, r=8, lora_alpha=16):
-        super().__init__()
-        self.original = original_layer
-        self.original.weight.requires_grad = False  # freeze
+https://gist.github.com/cmenguy/3d9417d98a662f6a687c22ae32a61df8
 
-        d, k = original_layer.weight.shape
-        self.r = r
-        self.lora_alpha = lora_alpha
-        self.scaling = lora_alpha / r
-```
 
 A few things to notice here. The original layer is frozen (`requires_grad = False`). And there's a `scaling` factor that we'll come back to shortly. Now the adapter matrices:
 
-```python
-        # A is initialized with Kaiming uniform (like the paper)
-        self.lora_A = nn.Parameter(torch.empty(r, k))
-        nn.init.kaiming_uniform_(self.lora_A, a=5**0.5)
 
-        # B is initialized to zero so ΔW = BA = 0 at start
-        self.lora_B = nn.Parameter(torch.zeros(d, r))
-```
+https://gist.github.com/cmenguy/f50194f9ce5751aaffc700d1139e82c8
+
 
 This initialization is critical. $B$ starts at zero, which means ![equation](https://latex.codecogs.com/png.latex?\inline%20%5CDelta%20W%20%3D%20BA%20%3D%200) at the beginning of training. The model starts producing exactly the same outputs as the pretrained model. Training then gradually learns the update. $A$ uses Kaiming uniform initialization to break symmetry.
 
 The forward pass puts it all together:
 
-```python
-    def forward(self, x):
-        # Original frozen path
-        base_output = self.original(x)
-        # LoRA path: x → A → B → scale
-        lora_output = (x @ self.lora_A.T @ self.lora_B.T) * self.scaling
-        return base_output + lora_output
-```
+
+https://gist.github.com/cmenguy/1f9a000e958e795b1685c95cf15a4c58
+
 
 Two separate matrix multiplications through the bottleneck: ![equation](https://latex.codecogs.com/png.latex?\inline%20x%20%5Ccdot%20A%5ET) compresses to rank $r$, then ![equation](https://latex.codecogs.com/png.latex?\inline%20%5Ccdot%20B%5ET) projects back up, plus the scaling factor. Let's see the parameter savings in action:
 
-```python
-d, k, r = 4096, 4096, 8
-full_params = d * k
-lora_params = (d * r) + (r * k)
-print(f"Full fine-tuning: {full_params:,} parameters")
-print(f"LoRA (r={r}):     {lora_params:,} parameters")
-print(f"Reduction:        {full_params / lora_params:.0f}x")
-```
 
-```
-Full fine-tuning: 16,777,216 parameters
-LoRA (r=8):       65,536 parameters
-Reduction:        256x
-```
+https://gist.github.com/cmenguy/9b19a3b762baacd1e8a925046b37c571
 
-## What Rank Actually Means
+
+
+https://gist.github.com/cmenguy/91745082cbba6d1186451874d8544758
+
+
+## 4. What Rank Actually Means
 
 The rank $r$ is LoRA's most important hyperparameter, and it's worth building intuition about what it controls.
 
@@ -158,48 +98,25 @@ The original LoRA paper found something surprising: even $r = 1$ or $r = 2$ work
 
 Here's a practical way to see this. Let's create a weight update, compute its singular values, and see how the energy concentrates:
 
-```python
-import torch
 
-torch.manual_seed(42)
-d, k = 4096, 4096
+https://gist.github.com/cmenguy/a3c24fa21660b940b6d615ff732b967c
 
-# Simulate a fine-tuning weight update
-delta_W = torch.randn(d, k) * 0.01  # small perturbation
-U, S, Vt = torch.linalg.svd(delta_W, full_matrices=False)
 
-# How much "energy" is captured by the top-r singular values?
-total_energy = (S ** 2).sum()
-for r in [1, 2, 4, 8, 16, 32, 64]:
-    captured = (S[:r] ** 2).sum() / total_energy * 100
-    print(f"r={r:3d}: {captured:.2f}% of energy captured")
-```
 
-```
-r=  1: 0.10% of energy captured
-r=  2: 0.19% of energy captured
-r=  4: 0.39% of energy captured
-r=  8: 0.77% of energy captured
-r= 16: 1.52% of energy captured
-r= 32: 3.00% of energy captured
-r= 64: 5.85% of energy captured
-```
+https://gist.github.com/cmenguy/278c20dfae46e7985d6d1e381ba8ed89
+
 
 A random matrix spreads its energy uniformly across all singular values, which is why even $r = 64$ only captures ~2%. But real fine-tuning updates aren't random. They concentrate on a few directions that matter for the task. In practice, $r = 8$ or $r = 16$ captures the meaningful signal while ignoring noise.
 
-### Choosing Rank in Practice
+#### 4.1 Choosing Rank in Practice
 
-| Rank | Trainable params (per 4096×4096 layer) | Use case |
-|------|---------------------------------------|----------|
-| 4    | 32,768   | Simple style transfer, narrow tasks |
-| 8    | 65,536   | Most fine-tuning tasks (good default) |
-| 16   | 131,072  | Complex tasks, multi-skill learning |
-| 32   | 262,144  | Approaching diminishing returns |
-| 64   | 524,288  | Rarely needed; consider full fine-tuning |
+
+https://gist.github.com/cmenguy/fbeef349cd77b522c3f445ee77ff9e1a
+
 
 The sweet spot for most tasks is ![equation](https://latex.codecogs.com/png.latex?\inline%20r%20%5Cin%20%5B8%2C%2016%5D). Going higher adds parameters without proportional improvement. Going lower risks underfitting complex tasks.
 
-## The Scaling Factor: Why lora_alpha Exists
+## 5. The Scaling Factor: Why lora_alpha Exists
 
 If you've ever stared at `lora_alpha=32` in a config and wondered what it does, here's the answer. The LoRA forward pass applies a scaling factor:
 
@@ -211,232 +128,103 @@ Without this scaling, changing the rank would change the magnitude of the LoRA u
 
 Here's the practical implication. When `lora_alpha = 2 * r` (the common convention), the scaling factor is ![equation](https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7B2r%7D%7Br%7D%20%3D%202). The LoRA update gets amplified by 2x. This means:
 
-```python
-# These two configs behave similarly despite different ranks:
-# Config A: r=8,  alpha=16 → scaling = 16/8  = 2.0
-# Config B: r=16, alpha=32 → scaling = 32/16 = 2.0
-# Config C: r=8,  alpha=8  → scaling = 8/8   = 1.0  (no amplification)
-```
+
+https://gist.github.com/cmenguy/cd0edecc0b9aed432bc26bbad0de6b2a
+
 
 You can think of `lora_alpha` as a "volume knob" for the LoRA update. Higher alpha amplifies the adapter's effect. The convention of `alpha = 2 * r` works well in practice, but you can tune it, especially if you notice training instability (lower alpha) or the model not learning fast enough (higher alpha).
 
 Let's see this in action:
 
-```python
-import torch
 
-d, k, r = 128, 128, 8
-x = torch.randn(1, k)
-B = torch.randn(d, r) * 0.01
-A = torch.randn(r, k) * 0.01
+https://gist.github.com/cmenguy/d2224c3f6717e69633d164302a1e9624
 
-for alpha in [4, 8, 16, 32]:
-    scaling = alpha / r
-    lora_out = (x @ A.T @ B.T) * scaling
-    print(f"alpha={alpha:2d}, scaling={scaling:.1f}, "
-          f"output norm={lora_out.norm():.4f}")
-```
 
-```
-alpha= 4, scaling=0.5, output norm=0.0250
-alpha= 8, scaling=1.0, output norm=0.0501
-alpha=16, scaling=2.0, output norm=0.1002
-alpha=32, scaling=4.0, output norm=0.2003
-```
+
+https://gist.github.com/cmenguy/9bd537e9fd0b92af57474398b3578a3a
+
 
 Linear relationship: double the alpha, double the output magnitude. The learning rate and scaling factor interact, which is why the convention of fixing `alpha = 2r` and tuning only the learning rate is the pragmatic approach.
 
-## Which Layers Get LoRA?
+## 6. Which Layers Get LoRA?
 
 In a transformer, LoRA is typically applied to the attention projection matrices. Looking at a standard multi-head attention block:
 
-```
-Input
-  │
-  ├──→ Q = W_q · x     ← LoRA here (q_proj)
-  ├──→ K = W_k · x     ← LoRA here (k_proj)
-  ├──→ V = W_v · x     ← LoRA here (v_proj)
-  │
-  │    Attention(Q, K, V)
-  │
-  └──→ O = W_o · attn   ← LoRA here (o_proj)
-```
+
+https://gist.github.com/cmenguy/61a0b29d8fd667ed0eb0523c80c18948
+
 
 The original paper applied LoRA only to ![equation](https://latex.codecogs.com/png.latex?\inline%20W_q) and ![equation](https://latex.codecogs.com/png.latex?\inline%20W_v), but modern practice targets all four attention projections. Some people also include the MLP layers (`gate_proj`, `up_proj`, `down_proj`), though the marginal benefit varies.
 
 Here's the config you'll see in most production setups:
 
-```python
-from peft import LoraConfig
 
-# Standard config — attention projections only
-config = LoraConfig(
-    r=16,
-    lora_alpha=32,
-    lora_dropout=0.05,
-    target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
-    task_type="CAUSAL_LM",
-)
-```
+https://gist.github.com/cmenguy/8349a9815533ee8e47fee7332dad633a
+
 
 And if you want to be more aggressive:
 
-```python
-# Extended config — attention + MLP
-config_extended = LoraConfig(
-    r=16,
-    lora_alpha=32,
-    lora_dropout=0.05,
-    target_modules=[
-        "q_proj", "v_proj", "k_proj", "o_proj",
-        "gate_proj", "up_proj", "down_proj",
-    ],
-    task_type="CAUSAL_LM",
-)
-```
+
+https://gist.github.com/cmenguy/a8890c2b0457a085e0b4786b6fc66836
+
 
 Let's count the parameter difference across a full model:
 
-```python
-# Llama 3.1 8B has 32 transformer layers
-num_layers = 32
-d_model = 4096
-d_ffn = 14336  # MLP intermediate size
-r = 16
 
-# Attention-only LoRA
-attn_params = num_layers * 4 * (2 * d_model * r)
-# Attention + MLP LoRA
-mlp_params = num_layers * 3 * ((d_model * r) + (d_ffn * r))
-total_attn = attn_params
-total_all = attn_params + mlp_params
+https://gist.github.com/cmenguy/ab35ef07d4ec0c29dffec1ce0c27e161
 
-print(f"Attention-only LoRA: {total_attn:>12,} params")
-print(f"Attention + MLP LoRA: {total_all:>11,} params")
-print(f"Full model:           8,000,000,000 params")
-print(f"Attn LoRA %:          {total_attn/8e9*100:.2f}%")
-print(f"All LoRA %:           {total_all/8e9*100:.2f}%")
-```
 
-```
-Attention-only LoRA:    16,777,216 params
-Attention + MLP LoRA:   45,088,768 params
-Full model:           8,000,000,000 params
-Attn LoRA %:          0.21%
-All LoRA %:           0.56%
-```
+
+https://gist.github.com/cmenguy/ee21a687d7e78c9d2428cbc820ac62f7
+
 
 Even the aggressive "all projections" approach trains less than 1% of the model. That's LoRA's superpower.
 
-## A Complete Training Example
+## 7. A Complete Training Example
 
 Let's put all the pieces together with a real training example. We'll fine-tune a small model so you can actually run this, and inspect the LoRA matrices at each stage.
 
 First, let's create a minimal dataset and load a model with LoRA:
 
-```python
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from peft import LoraConfig, get_peft_model
-import torch
 
-model_name = "HuggingFaceTB/SmolLM2-135M"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForCausalLM.from_pretrained(
-    model_name, torch_dtype=torch.float32
-)
+https://gist.github.com/cmenguy/fd7d42fedb11fac02484e90bf21deb99
 
-lora_config = LoraConfig(
-    r=8,
-    lora_alpha=16,
-    target_modules=["q_proj", "v_proj"],
-    task_type="CAUSAL_LM",
-)
 
-model = get_peft_model(model, lora_config)
-model.print_trainable_parameters()
-```
 
-```
-trainable params: 460,800 || all params: 134,975,808 || trainable%: 0.3414
-```
+https://gist.github.com/cmenguy/7beda87422356e47358edc00b1dd2418
+
 
 Only 0.34% of parameters are trainable. Let's inspect what the LoRA matrices look like before training:
 
-```python
-# Grab the LoRA matrices from the first layer's q_proj
-q_lora = model.model.model.layers[0].self_attn.q_proj
-lora_A = q_lora.lora_A.default.weight.data
-lora_B = q_lora.lora_B.default.weight.data
 
-print(f"lora_A shape: {lora_A.shape}, norm: {lora_A.norm():.4f}")
-print(f"lora_B shape: {lora_B.shape}, norm: {lora_B.norm():.4f}")
-print(f"ΔW = B·A norm: {(lora_B @ lora_A).norm():.4f}")
-```
+https://gist.github.com/cmenguy/6bc281ed38a89b630de0bbb90b407d29
 
-```
-lora_A shape: torch.Size([8, 576]), norm: 1.6235
-lora_B shape: torch.Size([576, 8]), norm: 0.0000
-ΔW = B·A norm: 0.0000
-```
+
+
+https://gist.github.com/cmenguy/fb8d4fd42ebed490e58eaadd95eeeba8
+
 
 Exactly as expected. $A$ is initialized with random values, $B$ is all zeros, so ![equation](https://latex.codecogs.com/png.latex?\inline%20%5CDelta%20W%20%3D%20BA%20%3D%200). The model starts as if no adapter exists.
 
 Now let's train it on a few examples and see how the matrices change:
 
-```python
-from trl import SFTConfig, SFTTrainer
-from datasets import Dataset
 
-# Simple dataset for demonstration
-data = Dataset.from_list([
-    {"text": "The capital of France is Paris."},
-    {"text": "Machine learning models learn from data."},
-    {"text": "PyTorch is a deep learning framework."},
-    {"text": "Transformers use self-attention mechanisms."},
-] * 50)  # repeat for a few epochs worth of data
+https://gist.github.com/cmenguy/d25a1b4797fae8387a6bf8299b6531b9
 
-tokenizer.pad_token = tokenizer.eos_token
-training_args = SFTConfig(
-    output_dir="./lora-demo",
-    num_train_epochs=3,
-    per_device_train_batch_size=4,
-    learning_rate=1e-3,
-    logging_steps=25,
-    max_length=64,
-    report_to="none",
-)
-
-trainer = SFTTrainer(
-    model=model,
-    args=training_args,
-    train_dataset=data,
-    processing_class=tokenizer,
-)
-
-trainer.train()
-```
 
 After training, let's check the matrices again:
 
-```python
-lora_A_after = q_lora.lora_A.default.weight.data
-lora_B_after = q_lora.lora_B.default.weight.data
-delta_W = lora_B_after @ lora_A_after
 
-print(f"lora_A norm: {lora_A_after.norm():.4f}")
-print(f"lora_B norm: {lora_B_after.norm():.4f}")
-print(f"ΔW = B·A norm: {delta_W.norm():.4f}")
-print(f"ΔW shape: {delta_W.shape}")
-print(f"ΔW rank: ≤ {lora_config.r} (by construction)")
-```
+https://gist.github.com/cmenguy/41ef74d1e1b8760b86a1af41dc3df0e4
+
 
 $B$ is no longer zero. Training has learned a low-rank update. The model's behavior has shifted, but only along 8 independent directions in the weight space.
 
-## Merging: Collapsing the Adapter Into the Model
+## 8. Merging: Collapsing the Adapter Into the Model
 
 This is where things get practically interesting. You've trained your LoRA adapter. Now what? You have two options: keep the adapter separate, or merge it into the base model. The choice has real implications for serving.
 
-### What Merging Means
+#### 8.1 What Merging Means
 
 Merging is just matrix addition. You take the pretrained weight ![equation](https://latex.codecogs.com/png.latex?\inline%20W_0) and permanently add the LoRA update:
 
@@ -444,190 +232,69 @@ Merging is just matrix addition. You take the pretrained weight ![equation](http
 
 After merging, the model is a regular model again: no adapter, no separate matrices, no extra computation at inference time.
 
-```
-Before merge (inference):           After merge (inference):
 
-  x ──┬──→ W₀·x ──┐                  x ──→ W_merged·x ──→ output
-      │             (+) → output
-      └──→ B·A·x ──┘                  One matrix multiply.
-                                       No adapter overhead.
-  Two paths computed.
-  Adapter stored separately.
-```
+https://gist.github.com/cmenguy/9e82b5ba57d7a839ac5bbc7252df0b3e
+
 
 Here's how you do it in code:
 
-```python
-from peft import PeftModel
 
-# Option 1: merge and get a regular model
-merged_model = model.merge_and_unload()
+https://gist.github.com/cmenguy/35dece0358cb3c42d03ed86b81cc260e
 
-# The merged model is a standard transformers model now
-# No LoRA layers, no adapters: just modified weights
-merged_model.save_pretrained("./merged-model")
-```
 
 Let's verify the merge is mathematically correct:
 
-```python
-import torch
 
-# Before: base weight + LoRA
-W0 = q_lora.weight.data.clone()       # original frozen weight
-scaling = lora_config.lora_alpha / lora_config.r
-delta_W = (lora_B_after @ lora_A_after) * scaling
+https://gist.github.com/cmenguy/57ecd181a892692ef569bd73eb13583d
 
-# Manually compute the merged weight
-W_manual = W0 + delta_W
 
-# Compare with what PEFT computes
-W_peft = merged_model.model.layers[0].self_attn.q_proj.weight.data
 
-print(f"Manual merge matches PEFT: "
-      f"{torch.allclose(W_manual, W_peft, atol=1e-5)}")
-```
+https://gist.github.com/cmenguy/d86d83662892149c2472049255c43b61
 
-```
-Manual merge matches PEFT: True
-```
 
 Just matrix addition with scaling. Nothing mysterious.
 
-### What Happens If You Don't Merge
+#### 8.2 What Happens If You Don't Merge
 
 If you skip the merge, the LoRA adapter stays separate from the base model. This isn't just an academic distinction; it affects both performance and flexibility.
 
 **Inference overhead.** Without merging, every forward pass computes two paths: the base model path and the LoRA path. For a single request, the overhead is small. But at scale, those extra matrix multiplications add up:
 
-```python
-import torch
-import time
 
-d, k, r = 4096, 4096, 16
-x = torch.randn(32, k)  # batch of 32
+https://gist.github.com/cmenguy/0d315c41f7fd134e68b78978e446012c
 
-W0 = torch.randn(d, k)
-B = torch.randn(d, r)
-A = torch.randn(r, k)
-W_merged = W0 + B @ A
-
-# Benchmark: merged (single matmul) vs unmerged (two paths)
-def bench_merged(x, W, n=1000):
-    for _ in range(n):
-        _ = x @ W.T
-
-def bench_unmerged(x, W0, A, B, n=1000):
-    for _ in range(n):
-        _ = x @ W0.T + x @ A.T @ B.T
-
-t0 = time.perf_counter()
-bench_merged(x, W_merged)
-t_merged = time.perf_counter() - t0
-
-t0 = time.perf_counter()
-bench_unmerged(x, W0, A, B)
-t_unmerged = time.perf_counter() - t0
-
-print(f"Merged:   {t_merged:.3f}s")
-print(f"Unmerged: {t_unmerged:.3f}s")
-print(f"Overhead: {(t_unmerged/t_merged - 1)*100:.1f}%")
-```
 
 The exact overhead depends on hardware, but expect 5-15% extra latency on the forward pass. Not catastrophic, but not free.
 
 **Multi-adapter serving.** Here's the flip side: not merging is actually a *feature* when you need to serve multiple adapters. If you have one base model and 50 brand-specific LoRA adapters (like the marketing scenario from the previous post), you can:
 
-```python
-from peft import PeftModel
 
-# Load base model once (most of the memory)
-base_model = AutoModelForCausalLM.from_pretrained(
-    "meta-llama/Llama-3.1-8B-Instruct",
-    torch_dtype=torch.float16,
-    device_map="auto",
-)
+https://gist.github.com/cmenguy/a16979ee34a349ee31ef71eef7b20466
 
-# Load different adapters on the fly
-model = PeftModel.from_pretrained(base_model, "./adapter-brand-A")
-output_A = model.generate(...)
-
-# Switch to a different adapter (near instant)
-model.load_adapter("./adapter-brand-B", adapter_name="brand_b")
-model.set_adapter("brand_b")
-output_B = model.generate(...)
-```
 
 Each adapter is a few megabytes. The base model is tens of gigabytes. Without merging, you store one base model + N tiny adapters instead of N full model copies. That's the difference between needing 1 GPU and needing 50.
 
-```
-Merged approach:                     Adapter approach:
 
-┌────────────────────┐               ┌────────────────────┐
-│ Merged Model A     │  ~16 GB       │ Base Model         │  ~16 GB
-│ (base + adapter A) │               │ (shared)           │
-└────────────────────┘               └────────────────────┘
-┌────────────────────┐                   │
-│ Merged Model B     │  ~16 GB          ┌┴─────┐
-│ (base + adapter B) │               ┌──┤      ├──┐
-└────────────────────┘               │  └──────┘  │
-┌────────────────────┐            ┌──┴──┐      ┌──┴──┐
-│ Merged Model C     │  ~16 GB   │ A   │      │ B   │  ~10 MB each
-│ (base + adapter C) │           │     │      │     │
-└────────────────────┘           └─────┘      └─────┘
-                                              ┌─────┐
-Total: ~48 GB                                 │ C   │
-                                              └─────┘
-                                 Total: ~16.03 GB
-```
+https://gist.github.com/cmenguy/1c979eaeb18943125168ee7d4c74faa2
 
-### When to Merge vs. Keep Separate
 
-| Scenario | Merge? | Why |
-|----------|--------|-----|
-| Single model in production | Yes | No overhead, simpler serving |
-| Multiple adapters, one base | No | Memory efficient, hot-swappable |
-| Distributing fine-tuned model | Yes | Easier for users, no PEFT dependency |
-| Continued training / experimentation | No | Keep adapter separate for iteration |
-| Stacking adapters (LoRA + LoRA) | No | Can combine multiple adapters |
+#### 8.3 When to Merge vs. Keep Separate
 
-### The Merge in Detail
+
+https://gist.github.com/cmenguy/1cdfb4d36896e318526a2cefddacc6f1
+
+
+#### 8.4 The Merge in Detail
 
 Let's trace exactly what `merge_and_unload` does under the hood. It's simple but worth understanding:
 
-```python
-import torch
 
-# Simulating the merge process
-d, k, r = 512, 512, 8
-alpha, rank = 16, 8
-scaling = alpha / rank
+https://gist.github.com/cmenguy/871259e16b936f5f2e3227f0d3d98b22
 
-# Pretrained weight (frozen during training)
-W0 = torch.randn(d, k)
-
-# Learned LoRA matrices
-B = torch.randn(d, r) * 0.01
-A = torch.randn(r, k) * 0.01
-
-# Step 1: compute the low-rank update
-delta_W = B @ A  # (d × r) @ (r × k) = (d × k)
-print(f"ΔW shape: {delta_W.shape}")
-
-# Step 2: apply the scaling factor
-delta_W_scaled = delta_W * scaling
-print(f"Scaling factor (α/r): {scaling}")
-
-# Step 3: add to original weights
-W_merged = W0 + delta_W_scaled
-print(f"W0 norm:      {W0.norm():.2f}")
-print(f"ΔW norm:      {delta_W_scaled.norm():.2f}")
-print(f"W_merged norm: {W_merged.norm():.2f}")
-```
 
 The merged weight is a regular matrix. No special structure, no adapter overhead. But you lose the ability to "un-merge"; the adapter's contribution is baked into the weights permanently.
 
-## Practical Tips From Production
+## 9. Practical Tips From Production
 
 A few things I've learned the hard way that the paper doesn't tell you:
 
@@ -641,18 +308,11 @@ A few things I've learned the hard way that the paper doesn't tell you:
 
 **Double-check your target modules.** Different model families have different linear layer names. Llama uses `q_proj`, `k_proj`, `v_proj`, `o_proj`. Other models might use `query`, `key`, `value`, or `qkv_proj`. Check with:
 
-```python
-from peft import LoraConfig
 
-# Let PEFT figure out the right layer names
-config = LoraConfig(r=8, target_modules="all-linear")
-# Or inspect the model manually:
-for name, module in model.named_modules():
-    if isinstance(module, torch.nn.Linear):
-        print(f"{name}: {module.weight.shape}")
-```
+https://gist.github.com/cmenguy/2a3272058df9748308ef359786db7306
 
-## Wrapping Up
+
+## 10. Wrapping Up
 
 LoRA's elegance is in how simple it actually is once you see the math. Freeze the pretrained weights, learn a low-rank update decomposed into two small matrices, and add it to the forward pass with a scaling factor. That's the whole algorithm. The rest is engineering: choosing which layers to target, setting the rank and scaling, deciding whether to merge for serving or keep adapters separate for flexibility.
 

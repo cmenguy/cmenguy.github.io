@@ -6,58 +6,19 @@
 <p>In the <a href="https://ai-terminal.net/llm/ai-engineering/agents/2026/01/28/agentic-protocols/">last post</a> I talked about A2A, MCP, and where multi-agent systems break down. I ended with a teaser about the "single agent with skills" pattern being the sweet spot most teams should reach for. This post is the follow-through on that promise.</p>
 <p>At work, we'd been running a multi-agent setup loosely inspired by A2A. Multiple agents, each with their own context, coordinating over internal APIs. It worked, mostly. But every time we wanted to add a new capability (a new type of analysis, a new data source) it meant spinning up a new service, defining new endpoints, and dealing with exactly the context fragmentation problems I'd been writing about.</p>
 <p>Someone on the team brought up skills. Not as a vague concept, but as a concrete pattern: what if instead of a new agent, we wrote a markdown file? A file that tells the existing agent <em>how</em> to do the new thing, what tools it needs, and when to activate. I was skeptical at first. A markdown file replacing a microservice felt like bringing a napkin to a knife fight. But I tried it, and within a few days I had a pretty complex agent rebuilt as a skill. It worked about 90% as well as the dedicated service and was already a lot more flexible. That got my attention.</p>
-<h2>Why Not Just Context Engineering?</h2>
+<h2>1. Why Not Just Context Engineering?</h2>
 <p>Before we get into skills, let's address the elephant: why can't you just stuff everything into the system prompt?</p>
 <p>You can, and many teams do. Here's what that looks like in practice:</p>
-<div class="codehilite"><pre><span></span><code><span class="n">system_prompt</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;You are a helpful AI assistant.</span>
-
-<span class="s2">When the user asks about billing, follow these steps:</span>
-<span class="s2">1. Look up their account using the customer_db tool</span>
-<span class="s2">2. Check recent invoices using the billing_api tool</span>
-<span class="s2">3. If there&#39;s a dispute, escalate via the ticket_system tool</span>
-
-<span class="s2">When the user asks about technical issues, follow these steps:</span>
-<span class="s2">1. Check the status page using the monitoring tool</span>
-<span class="s2">2. Look up known issues in the knowledge base</span>
-<span class="s2">3. If it&#39;s a new issue, create a ticket</span>
-
-<span class="s2">When the user asks about onboarding, follow these steps:</span>
-<span class="s2">1. Check their account status</span>
-<span class="s2">2. Walk them through the setup wizard</span>
-<span class="s2">3. ...</span>
-
-<span class="s2"># 47 more capability blocks</span>
-<span class="s2">&quot;&quot;&quot;</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/533e4e828c6ce28e23dd66befd6c69a1.js"></script>
 <p>This works at three capabilities. At fifteen, you start noticing the model sometimes confuses which tool sequence to use. At thirty, you're managing a 10,000-token system prompt where changing one capability risks breaking another. And testing? You're testing the entire system prompt every time you touch a single capability.</p>
 <p>The failure mode is subtle. The model doesn't crash, it just starts blending instructions. It'll use the billing escalation flow for a technical issue, or skip a step in onboarding because the adjacent capability's instructions bled in. I've seen this happen in production, and it's the worst kind of bug because the output looks plausible.</p>
 <p>Skills solve this by <strong>scoping instructions to a single capability</strong> and <strong>loading only what's relevant</strong>. Instead of a 10K-token system prompt where everything is always present, you have focused instruction sets that get loaded on demand. The model sees the billing skill <em>or</em> the technical support skill, never a soup of both.</p>
-<h2>Anatomy of a Skill</h2>
+<h2>2. Anatomy of a Skill</h2>
 <p>A skill is a folder. At minimum it contains one file: <code>SKILL.md</code>. That's it. Here's the structure:</p>
-<div class="codehilite"><pre><span></span><code><span class="n">deploy</span><span class="o">-</span><span class="n">review</span><span class="o">/</span>
-<span class="err">├──</span><span class="w"> </span><span class="n">SKILL</span><span class="o">.</span><span class="n">md</span><span class="w">              </span><span class="c1"># Instructions (required)</span>
-<span class="err">├──</span><span class="w"> </span><span class="n">scripts</span><span class="o">/</span>
-<span class="err">│</span><span class="w">   </span><span class="err">└──</span><span class="w"> </span><span class="n">check_deploy</span><span class="o">.</span><span class="n">sh</span><span class="w">   </span><span class="c1"># Helper scripts</span>
-<span class="err">├──</span><span class="w"> </span><span class="n">references</span><span class="o">/</span>
-<span class="err">│</span><span class="w">   </span><span class="err">└──</span><span class="w"> </span><span class="n">RUNBOOK</span><span class="o">.</span><span class="n">md</span><span class="w">        </span><span class="c1"># Detailed docs loaded on-demand</span>
-<span class="err">└──</span><span class="w"> </span><span class="n">assets</span><span class="o">/</span>
-<span class="w">    </span><span class="err">└──</span><span class="w"> </span><span class="n">template</span><span class="o">.</span><span class="n">yaml</span><span class="w">     </span><span class="c1"># Templates, configs</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/4e09f901a66d5786b5d2c26112fd4621.js"></script>
 <p>The <code>SKILL.md</code> has two parts: frontmatter (metadata) and body (instructions). Let me walk through a real example. I'll use a "deploy review" skill, something that reviews a deployment plan before pushing to production. This is a skill I actually built at work, simplified for this post.</p>
-<h3>The Frontmatter</h3>
-<div class="codehilite"><pre><span></span><code><span class="nn">---</span>
-<span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">deploy-review</span>
-<span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;</span>
-<span class="w">  </span><span class="no">Reviews deployment plans for safety and correctness before</span>
-<span class="w">  </span><span class="no">pushing to production. Use when the user mentions deploying,</span>
-<span class="w">  </span><span class="no">releasing, shipping, or pushing to prod.</span>
-<span class="nt">user-invocable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="nt">allowed-tools</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Bash&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Read&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Glob&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Grep&quot;</span><span class="p p-Indicator">]</span>
-<span class="nn">---</span>
-</code></pre></div>
-
+<h4>2.1 The Frontmatter</h4>
+<script src="https://gist.github.com/cmenguy/3f749c331f44cc733622f5e80d89c65c.js"></script>
 <p>Each field matters:</p>
 <ul>
 <li><strong><code>name</code></strong>: Lowercase, hyphens only. This becomes the <code>/deploy-review</code> slash command.</li>
@@ -65,405 +26,84 @@
 <li><strong><code>user-invocable</code></strong>: Can a human type <code>/deploy-review</code> to trigger it? Set to <code>false</code> for background skills that only the agent should activate.</li>
 <li><strong><code>allowed-tools</code></strong>: What tools the skill can use. This is a security boundary. A documentation skill shouldn't need <code>Bash</code>, and a deploy review skill shouldn't need <code>Write</code>.</li>
 </ul>
-<h3>The Body</h3>
+<h4>2.2 The Body</h4>
 <p>The body is markdown instructions. Here's a simplified version:</p>
-<div class="codehilite"><pre><span></span><code><span class="gh"># Deploy Review</span>
-
-Before any deployment, verify the following:
-
-<span class="gu">## Pre-flight Checks</span>
-
-<span class="k">1.</span> Run the test suite and confirm all tests pass
-<span class="k">2.</span> Check that the diff doesn&#39;t include secrets or credentials
-<span class="k">3.</span> Verify database migrations are backward-compatible
-<span class="k">4.</span> Confirm the rollback procedure is documented
-
-<span class="gu">## Review Process</span>
-
-Read the deployment manifest:
-<span class="k">-</span><span class="w"> </span>Compare against the production config
-<span class="k">-</span><span class="w"> </span>Flag any new environment variables
-<span class="k">-</span><span class="w"> </span>Check resource limits (CPU, memory) against cluster capacity
-
-<span class="gu">## Output Format</span>
-
-Provide a structured review:
-<span class="k">-</span><span class="w"> </span><span class="gs">**Status**</span>: APPROVE / BLOCK / NEEDS_DISCUSSION
-<span class="k">-</span><span class="w"> </span><span class="gs">**Risks**</span>: List any risks found, ranked by severity
-<span class="k">-</span><span class="w"> </span><span class="gs">**Missing**</span>: What&#39;s not in the plan that should be
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/e7333542fd006d838d98dc95e0251359.js"></script>
 <p>Notice what this is: <em>scoped instructions for a specific task</em>. Not a general system prompt trying to do everything. The model loads this when it needs to review a deployment, follows the steps, and produces the expected output format. When it's doing something else, like writing code or answering questions, these instructions aren't in context and can't interfere.</p>
-<h3>Progressive Disclosure</h3>
+<h4>2.3 Progressive Disclosure</h4>
 <p>Here's a design principle that took me a while to appreciate: <strong>the agent doesn't load the full skill upfront</strong>. It works in two phases:</p>
 <p><strong>Phase 1 — Discovery (~100 tokens):</strong> The agent reads the <code>name</code> and <code>description</code> of every available skill. This is cheap. For 20 skills, that's ~2,000 tokens of metadata.</p>
 <p><strong>Phase 2 — Activation (&lt;5,000 tokens):</strong> When the agent decides a skill is relevant (based on the description matching the user's request), it loads the full <code>SKILL.md</code>. This is the full instruction set, but only for the activated skill.</p>
-<div class="codehilite"><pre><span></span><code>User says: &quot;Can you review my deploy plan?&quot;
-
-Agent thinks:
-  → Scans skill descriptions
-  → &quot;deploy-review&quot; description mentions &quot;deploying, releasing, pushing to prod&quot;
-  → Match! Load full SKILL.md
-  → Now has focused deploy review instructions in context
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/f61870ae694e4a7e6748fc2fde8b3857.js"></script>
 <p>This is why the description matters so much. A bad description means the skill never gets activated:</p>
-<div class="codehilite"><pre><span></span><code><span class="c1"># Bad — too vague, model won&#39;t match it to user intent</span>
-<span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Helps</span><span class="nv"> </span><span class="s">with</span><span class="nv"> </span><span class="s">deployments.&quot;</span>
-
-<span class="c1"># Good — includes trigger words and explains the capability</span>
-<span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;</span>
-<span class="w">  </span><span class="no">Reviews deployment plans for safety and correctness before</span>
-<span class="w">  </span><span class="no">pushing to production. Use when the user mentions deploying,</span>
-<span class="w">  </span><span class="no">releasing, shipping, or pushing to prod.</span>
-</code></pre></div>
-
-<h3>Supporting Files</h3>
+<script src="https://gist.github.com/cmenguy/c8de433359eb859c0a5019159e3d1491.js"></script>
+<h4>2.4 Supporting Files</h4>
 <p>For complex skills, the <code>SKILL.md</code> stays focused and references separate files for the heavy stuff:</p>
-<div class="codehilite"><pre><span></span><code><span class="gh"># Deploy Review</span>
-
-<span class="gu">## Detailed runbook</span>
-
-For the full production deployment runbook,
-read <span class="sb">`references/RUNBOOK.md`</span>.
-
-<span class="gu">## Validation script</span>
-
-Run <span class="sb">`scripts/check_deploy.sh`</span> to perform automated checks
-before the manual review.
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/a05eda110ffa46f81378cb50a9e39fd8.js"></script>
 <p>The agent loads <code>RUNBOOK.md</code> only when it needs the detailed steps, not every time the skill activates. This keeps the token budget tight and avoids drowning the model in irrelevant detail.</p>
-<h2>Skills Across Agentic Harnesses</h2>
+<h2>3. Skills Across Agentic Harnesses</h2>
 <p>The <a href="https://agentskills.io">Agent Skills specification</a> is an open standard, which means the same <code>SKILL.md</code> file works across multiple tools. In practice, there are quirks. Let me walk through how skills integrate with three major agentic harnesses, using our deploy-review skill as the running example.</p>
-<h3>Claude Code</h3>
+<h4>3.1 Claude Code</h4>
 <p>Claude Code has the most mature skills implementation. Skills live in a few places, in priority order:</p>
-<div class="codehilite"><pre><span></span><code><span class="err">~/</span><span class="na">.claude</span><span class="err">/</span><span class="no">skills</span><span class="err">/</span><span class="no">deploy-review</span><span class="err">/</span><span class="no">SKILL.md</span><span class="w">     </span><span class="c1"># Personal (all projects)</span>
-<span class="na">.claude</span><span class="err">/</span><span class="no">skills</span><span class="err">/</span><span class="no">deploy-review</span><span class="err">/</span><span class="no">SKILL.md</span><span class="w">       </span><span class="c1"># Project-level (this repo)</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/68965cb7e76fe9fbeca158be87bd9b55.js"></script>
 <p>Project-level skills are the most common. They travel with the repo, so your whole team gets them via <code>git pull</code>.</p>
 <p>Claude Code adds some extensions beyond the base spec:</p>
-<div class="codehilite"><pre><span></span><code><span class="nn">---</span>
-<span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">deploy-review</span>
-<span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Reviews</span><span class="nv"> </span><span class="s">deployment</span><span class="nv"> </span><span class="s">plans...&quot;</span>
-<span class="nt">user-invocable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="nt">allowed-tools</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Bash&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Read&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Glob&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Grep&quot;</span><span class="p p-Indicator">]</span>
-<span class="nt">context</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fork</span><span class="w">          </span><span class="c1"># Run in an isolated subagent</span>
-<span class="nt">agent</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">general-purpose</span><span class="w"> </span><span class="c1"># Which subagent type to use</span>
-<span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">haiku</span><span class="w">           </span><span class="c1"># Use a cheaper model for this skill</span>
-<span class="nn">---</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/b1273059fb0b33bf8d8edf4871968128.js"></script>
 <p><strong><code>context: fork</code></strong> is particularly useful. It runs the skill in a subagent with its own context, so a long skill execution doesn't pollute the main conversation. The tradeoff is that the subagent can't see prior conversation history.</p>
 <p><strong>Dynamic context injection</strong> is another Claude Code extension. You can execute shell commands at skill load time:</p>
-<div class="codehilite"><pre><span></span><code>---
-<span class="gu">name: deploy-review</span>
-<span class="gu">---</span>
-
-<span class="gu">## Current deployment state</span>
-<span class="k">-</span><span class="w"> </span>Cluster status: !<span class="sb">`kubectl get nodes --no-headers | wc -l`</span> nodes
-<span class="k">-</span><span class="w"> </span>Pending migrations: !<span class="sb">`ls db/migrate/*.pending 2&gt;/dev/null | wc -l`</span>
-<span class="k">-</span><span class="w"> </span>Last deploy: !<span class="sb">`git log --oneline -1 origin/production`</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/ba97b5eff7454c41db99e8bf02363db5.js"></script>
 <p>The <code>!`command`</code> syntax runs the command and injects its output into the skill context before the model sees it. So the model gets live infrastructure state without needing to run those commands itself.</p>
-<h3>Mistral Vibe</h3>
+<h4>3.2 Mistral Vibe</h4>
 <p>Mistral's Vibe agent implements the same Agent Skills spec. Skills go in:</p>
-<div class="codehilite"><pre><span></span><code><span class="err">~/</span><span class="na">.vibe</span><span class="err">/</span><span class="no">skills</span><span class="err">/</span><span class="no">deploy-review</span><span class="err">/</span><span class="no">SKILL.md</span><span class="w">       </span><span class="c1"># Global</span>
-<span class="na">.vibe</span><span class="err">/</span><span class="no">skills</span><span class="err">/</span><span class="no">deploy-review</span><span class="err">/</span><span class="no">SKILL.md</span><span class="w">         </span><span class="c1"># Project-level</span>
-<span class="na">.agents</span><span class="err">/</span><span class="no">skills</span><span class="err">/</span><span class="no">deploy-review</span><span class="err">/</span><span class="no">SKILL.md</span><span class="w">       </span><span class="c1"># Standard Agent Skills path</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/67eee1e6d01dbfcfbbe40d01884e23db.js"></script>
 <p>The frontmatter and body format are identical. Your <code>SKILL.md</code> from Claude Code works in Vibe without changes. Vibe adds its own agent system on top:</p>
-<div class="codehilite"><pre><span></span><code><span class="c1"># ~/.vibe/agents/cautious-deployer.toml</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cautious-deployer&quot;</span>
-<span class="n">model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;mistral-large-latest&quot;</span>
-<span class="n">instructions</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Always run deploy-review skill before any deployment.&quot;</span>
-<span class="n">auto_approve</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="w">  </span><span class="c1"># Require human approval for all tool calls</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/e236e262a465ea2eea144653e022296f.js"></script>
 <p>In Vibe, you can define custom agents (separate from skills) that reference skills as part of their behavior. The distinction is: a <strong>skill</strong> is a reusable capability, an <strong>agent</strong> is a persona with specific tools and approval settings that might <em>use</em> skills.</p>
-<h3>OpenAI Codex</h3>
+<h4>3.3 OpenAI Codex</h4>
 <p>Here's where it gets interesting. Codex doesn't have a formal skills system as of early 2026. Instead, it uses two mechanisms that approximate skills:</p>
 <p><strong>AGENTS.md files</strong> serve a similar purpose to skills. They're markdown instructions that configure agent behavior:</p>
-<div class="codehilite"><pre><span></span><code>&lt;!-- AGENTS.md in your repo root --&gt;
-
-<span class="gu">## Deploy Review Process</span>
-
-When asked to review a deployment:
-<span class="k">1.</span> Run <span class="sb">`npm test`</span> and verify all tests pass
-<span class="k">2.</span> Check the diff for secrets: <span class="sb">`git diff --cached | grep -i &quot;api_key\|secret\|password&quot;`</span>
-<span class="k">3.</span> Review the Kubernetes manifest against production
-<span class="k">4.</span> Output a structured review with APPROVE/BLOCK status
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/d5df36f82a83eadab4f181025221f7ac.js"></script>
 <p>The key difference: AGENTS.md is monolithic. All instructions live in one file (or a few files), always loaded. There's no progressive disclosure, no activation-based loading, no isolated context. It's closer to the "stuff it in the system prompt" approach, just organized as a file.</p>
 <p><strong>Custom instructions</strong> in Codex's settings are the other mechanism: persistent behavioral instructions. But again, they're always on, not loaded on-demand.</p>
-<table>
-<thead>
-<tr>
-<th>Feature</th>
-<th>Claude Code</th>
-<th>Mistral Vibe</th>
-<th>OpenAI Codex</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Format</strong></td>
-<td>Agent Skills (SKILL.md)</td>
-<td>Agent Skills (SKILL.md)</td>
-<td>AGENTS.md</td>
-</tr>
-<tr>
-<td><strong>Progressive disclosure</strong></td>
-<td>Yes</td>
-<td>Yes</td>
-<td>No</td>
-</tr>
-<tr>
-<td><strong>Slash command invocation</strong></td>
-<td>Yes (<code>/deploy-review</code>)</td>
-<td>Yes</td>
-<td>No</td>
-</tr>
-<tr>
-<td><strong>Auto-activation</strong></td>
-<td>Yes (description matching)</td>
-<td>Yes</td>
-<td>Always loaded</td>
-</tr>
-<tr>
-<td><strong>Tool scoping</strong></td>
-<td><code>allowed-tools</code></td>
-<td><code>allowed-tools</code></td>
-<td>No</td>
-</tr>
-<tr>
-<td><strong>Subagent isolation</strong></td>
-<td><code>context: fork</code></td>
-<td>Agent definitions</td>
-<td>No</td>
-</tr>
-</tbody>
-</table>
+<script src="https://gist.github.com/cmenguy/f75d16561e23de7d6dacf761f523c9d9.js"></script>
 <p>This doesn't mean Codex is worse. It's a different design philosophy. Codex optimizes for simplicity (one file, always loaded), while Claude Code and Vibe optimize for modularity (many skills, loaded on demand). For small projects with 2-3 capabilities, the Codex approach is simpler. For large projects with dozens of capabilities, the skill-based approach scales better.</p>
-<h2>Skills via the Claude API</h2>
+<h2>4. Skills via the Claude API</h2>
 <p>Skills in Claude Code and Vibe are great for interactive development. But what if you're building a backend service (a customer support bot, an internal tool, a CI/CD pipeline) that needs skill-like behavior? You need skills at the API level.</p>
 <p>The Claude API supports this through two mechanisms: the <strong>Agent SDK</strong> and the <strong>container-based skills API</strong>.</p>
-<h3>The Agent SDK Approach</h3>
+<h4>4.1 The Agent SDK Approach</h4>
 <p>The Claude Agent SDK lets you load skills from the filesystem, just like Claude Code does:</p>
-<div class="codehilite"><pre><span></span><code><span class="kn">from</span> <span class="nn">claude_agent_sdk</span> <span class="kn">import</span> <span class="n">query</span><span class="p">,</span> <span class="n">ClaudeAgentOptions</span>
-
-<span class="n">options</span> <span class="o">=</span> <span class="n">ClaudeAgentOptions</span><span class="p">(</span>
-    <span class="c1"># Load skills from the project&#39;s .claude/skills/ directory</span>
-    <span class="n">setting_sources</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;project&quot;</span><span class="p">],</span>
-    <span class="n">allowed_tools</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Read&quot;</span><span class="p">,</span> <span class="s2">&quot;Bash&quot;</span><span class="p">,</span> <span class="s2">&quot;Glob&quot;</span><span class="p">,</span> <span class="s2">&quot;Grep&quot;</span><span class="p">],</span>
-<span class="p">)</span>
-
-<span class="k">async</span> <span class="k">for</span> <span class="n">message</span> <span class="ow">in</span> <span class="n">query</span><span class="p">(</span>
-    <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;Review the deployment plan in deploy.yaml&quot;</span><span class="p">,</span>
-    <span class="n">options</span><span class="o">=</span><span class="n">options</span><span class="p">,</span>
-<span class="p">):</span>
-    <span class="nb">print</span><span class="p">(</span><span class="n">message</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/14dbc553a000fadb6c904e01b0fa93a3.js"></script>
 <p>This reads your <code>SKILL.md</code> files from disk, handles the progressive disclosure, and manages the tool loop automatically. The agent decides which skill to activate based on the prompt, just like the interactive experience.</p>
 <p>You can also define skills programmatically, which is useful when your skills come from a database or API rather than a filesystem:</p>
-<div class="codehilite"><pre><span></span><code><span class="n">options</span> <span class="o">=</span> <span class="n">ClaudeAgentOptions</span><span class="p">(</span>
-    <span class="n">agents</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">&quot;deploy-reviewer&quot;</span><span class="p">:</span> <span class="n">AgentDefinition</span><span class="p">(</span>
-            <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Reviews deployment plans for safety&quot;</span><span class="p">,</span>
-            <span class="n">prompt</span><span class="o">=</span><span class="nb">open</span><span class="p">(</span><span class="s2">&quot;skills/deploy-review/SKILL.md&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">read</span><span class="p">(),</span>
-            <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Read&quot;</span><span class="p">,</span> <span class="s2">&quot;Bash&quot;</span><span class="p">,</span> <span class="s2">&quot;Glob&quot;</span><span class="p">],</span>
-        <span class="p">),</span>
-        <span class="s2">&quot;test-runner&quot;</span><span class="p">:</span> <span class="n">AgentDefinition</span><span class="p">(</span>
-            <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Runs test suites and reports results&quot;</span><span class="p">,</span>
-            <span class="n">prompt</span><span class="o">=</span><span class="nb">open</span><span class="p">(</span><span class="s2">&quot;skills/test-runner/SKILL.md&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">read</span><span class="p">(),</span>
-            <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Bash&quot;</span><span class="p">,</span> <span class="s2">&quot;Read&quot;</span><span class="p">],</span>
-        <span class="p">),</span>
-    <span class="p">}</span>
-<span class="p">)</span>
-</code></pre></div>
-
-<h3>The Container-Based Approach</h3>
+<script src="https://gist.github.com/cmenguy/c941c37cd9acff0cdad8477382892908.js"></script>
+<h4>4.2 The Container-Based Approach</h4>
 <p>For skills that need to produce files (generate reports, create spreadsheets, build presentations), the Claude API supports a container model where skills execute in a sandboxed environment with filesystem access:</p>
-<div class="codehilite"><pre><span></span><code><span class="kn">import</span> <span class="nn">anthropic</span>
-
-<span class="n">client</span> <span class="o">=</span> <span class="n">anthropic</span><span class="o">.</span><span class="n">Anthropic</span><span class="p">()</span>
-
-<span class="n">response</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">messages</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
-    <span class="n">model</span><span class="o">=</span><span class="s2">&quot;claude-sonnet-4-6&quot;</span><span class="p">,</span>
-    <span class="n">max_tokens</span><span class="o">=</span><span class="mi">4096</span><span class="p">,</span>
-    <span class="n">container</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">&quot;skills&quot;</span><span class="p">:</span> <span class="p">[</span>
-            <span class="p">{</span>
-                <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;anthropic&quot;</span><span class="p">,</span>
-                <span class="s2">&quot;skill_id&quot;</span><span class="p">:</span> <span class="s2">&quot;xlsx&quot;</span><span class="p">,</span>
-                <span class="s2">&quot;version&quot;</span><span class="p">:</span> <span class="s2">&quot;latest&quot;</span><span class="p">,</span>
-            <span class="p">}</span>
-        <span class="p">]</span>
-    <span class="p">},</span>
-    <span class="n">tools</span><span class="o">=</span><span class="p">[</span>
-        <span class="p">{</span>
-            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;code_execution_20250825&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;code_execution&quot;</span><span class="p">,</span>
-        <span class="p">}</span>
-    <span class="p">],</span>
-    <span class="n">messages</span><span class="o">=</span><span class="p">[{</span>
-        <span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;user&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;Create a deployment tracking spreadsheet &quot;</span>
-                   <span class="s2">&quot;with columns for service, version, status, &quot;</span>
-                   <span class="s2">&quot;and rollback plan.&quot;</span><span class="p">,</span>
-    <span class="p">}],</span>
-<span class="p">)</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/351879e29ccc1ceae0c22260ae8d2a22.js"></script>
 <p>The <code>container</code> parameter spins up an execution environment on Anthropic's servers. The skill (<code>xlsx</code> in this case) gives the model the knowledge and tools to create Excel files. The model writes files inside the container, and you get back <code>file_id</code> references you can download.</p>
 <p>What makes this powerful for custom skills is the pattern: <strong>read a skill definition, inject it as context, give the model filesystem access in a container, let it execute</strong>. You can build your own skill runner:</p>
-<div class="codehilite"><pre><span></span><code><span class="kn">import</span> <span class="nn">anthropic</span>
-
-<span class="k">def</span> <span class="nf">run_skill</span><span class="p">(</span><span class="n">skill_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">user_request</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Load a skill from disk and run it via the API.&quot;&quot;&quot;</span>
-    <span class="n">client</span> <span class="o">=</span> <span class="n">anthropic</span><span class="o">.</span><span class="n">Anthropic</span><span class="p">()</span>
-
-    <span class="c1"># Read the skill instructions</span>
-    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">skill_path</span><span class="si">}</span><span class="s2">/SKILL.md&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-        <span class="n">skill_instructions</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
-
-    <span class="c1"># Inject skill as system prompt, user request as message</span>
-    <span class="n">response</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">messages</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
-        <span class="n">model</span><span class="o">=</span><span class="s2">&quot;claude-sonnet-4-6&quot;</span><span class="p">,</span>
-        <span class="n">max_tokens</span><span class="o">=</span><span class="mi">4096</span><span class="p">,</span>
-        <span class="n">system</span><span class="o">=</span><span class="n">skill_instructions</span><span class="p">,</span>
-        <span class="n">tools</span><span class="o">=</span><span class="p">[</span>
-            <span class="p">{</span>
-                <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;code_execution_20250825&quot;</span><span class="p">,</span>
-                <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;code_execution&quot;</span><span class="p">,</span>
-            <span class="p">}</span>
-        <span class="p">],</span>
-        <span class="n">messages</span><span class="o">=</span><span class="p">[{</span>
-            <span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;user&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">user_request</span><span class="p">,</span>
-        <span class="p">}],</span>
-    <span class="p">)</span>
-    <span class="k">return</span> <span class="n">response</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/fcb74114285991863758718ad4ef8c27.js"></script>
 <p>This is a minimal skill runner. It loads a <code>SKILL.md</code> as the system prompt and runs the user's request against it. In production, you'd add tool result handling (the response might contain <code>tool_use</code> blocks that need execution), multi-turn conversation support, and error handling. But the core pattern is this simple: <strong>skill instructions become system prompt, user intent becomes the message</strong>.</p>
-<h3>Building a Multi-Skill Router</h3>
+<h4>4.3 Building a Multi-Skill Router</h4>
 <p>Here's the pattern I've converged on for services that need multiple skills: a router that mimics the progressive disclosure from Claude Code.</p>
-<div class="codehilite"><pre><span></span><code><span class="kn">import</span> <span class="nn">anthropic</span>
-<span class="kn">import</span> <span class="nn">yaml</span>
-<span class="kn">import</span> <span class="nn">os</span>
-
-<span class="k">def</span> <span class="nf">load_skill_registry</span><span class="p">(</span><span class="n">skills_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Load name + description for all skills (Phase 1).&quot;&quot;&quot;</span>
-    <span class="n">registry</span> <span class="o">=</span> <span class="p">{}</span>
-    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">listdir</span><span class="p">(</span><span class="n">skills_dir</span><span class="p">):</span>
-        <span class="n">skill_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">skills_dir</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="s2">&quot;SKILL.md&quot;</span><span class="p">)</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">skill_path</span><span class="p">):</span>
-            <span class="k">continue</span>
-        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">skill_path</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-            <span class="n">content</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
-        <span class="c1"># Parse YAML frontmatter</span>
-        <span class="n">parts</span> <span class="o">=</span> <span class="n">content</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;---&quot;</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
-        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">3</span><span class="p">:</span>
-            <span class="n">meta</span> <span class="o">=</span> <span class="n">yaml</span><span class="o">.</span><span class="n">safe_load</span><span class="p">(</span><span class="n">parts</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
-            <span class="n">registry</span><span class="p">[</span><span class="n">meta</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{</span>
-                <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="n">meta</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;description&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">),</span>
-                <span class="s2">&quot;path&quot;</span><span class="p">:</span> <span class="n">skill_path</span><span class="p">,</span>
-            <span class="p">}</span>
-    <span class="k">return</span> <span class="n">registry</span>
-</code></pre></div>
-
-<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="nf">build_routing_prompt</span><span class="p">(</span><span class="n">registry</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Build a prompt that lets the model pick a skill.&quot;&quot;&quot;</span>
-    <span class="n">skills_list</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
-        <span class="sa">f</span><span class="s2">&quot;- **</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">**: </span><span class="si">{</span><span class="n">info</span><span class="p">[</span><span class="s1">&#39;description&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
-        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">info</span> <span class="ow">in</span> <span class="n">registry</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
-    <span class="p">)</span>
-    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;You have access to these skills:</span>
-
-<span class="si">{</span><span class="n">skills_list</span><span class="si">}</span>
-
-<span class="s2">Given the user&#39;s request, respond with the skill name</span>
-<span class="s2">that best matches. If no skill matches, respond with</span>
-<span class="s2">&quot;none&quot;. Respond with ONLY the skill name.&quot;&quot;&quot;</span>
-</code></pre></div>
-
-<div class="codehilite"><pre><span></span><code><span class="k">async</span> <span class="k">def</span> <span class="nf">route_and_execute</span><span class="p">(</span>
-    <span class="n">user_request</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">skills_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;./skills&quot;</span><span class="p">,</span>
-<span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Two-phase skill routing: discover, then activate.&quot;&quot;&quot;</span>
-    <span class="n">client</span> <span class="o">=</span> <span class="n">anthropic</span><span class="o">.</span><span class="n">Anthropic</span><span class="p">()</span>
-    <span class="n">registry</span> <span class="o">=</span> <span class="n">load_skill_registry</span><span class="p">(</span><span class="n">skills_dir</span><span class="p">)</span>
-
-    <span class="c1"># Phase 1: Route to the right skill</span>
-    <span class="n">routing_response</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">messages</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
-        <span class="n">model</span><span class="o">=</span><span class="s2">&quot;claude-haiku-4-5-20251001&quot;</span><span class="p">,</span>  <span class="c1"># Cheap model for routing</span>
-        <span class="n">max_tokens</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
-        <span class="n">system</span><span class="o">=</span><span class="n">build_routing_prompt</span><span class="p">(</span><span class="n">registry</span><span class="p">),</span>
-        <span class="n">messages</span><span class="o">=</span><span class="p">[{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">user_request</span><span class="p">}],</span>
-    <span class="p">)</span>
-    <span class="n">skill_name</span> <span class="o">=</span> <span class="n">routing_response</span><span class="o">.</span><span class="n">content</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">text</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
-
-    <span class="k">if</span> <span class="n">skill_name</span> <span class="o">==</span> <span class="s2">&quot;none&quot;</span> <span class="ow">or</span> <span class="n">skill_name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">registry</span><span class="p">:</span>
-        <span class="k">return</span> <span class="s2">&quot;No matching skill found.&quot;</span>
-
-    <span class="c1"># Phase 2: Load full skill and execute</span>
-    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">registry</span><span class="p">[</span><span class="n">skill_name</span><span class="p">][</span><span class="s2">&quot;path&quot;</span><span class="p">])</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-        <span class="n">skill_instructions</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
-
-    <span class="k">return</span> <span class="n">client</span><span class="o">.</span><span class="n">messages</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
-        <span class="n">model</span><span class="o">=</span><span class="s2">&quot;claude-sonnet-4-6&quot;</span><span class="p">,</span>  <span class="c1"># Smart model for execution</span>
-        <span class="n">max_tokens</span><span class="o">=</span><span class="mi">4096</span><span class="p">,</span>
-        <span class="n">system</span><span class="o">=</span><span class="n">skill_instructions</span><span class="p">,</span>
-        <span class="n">messages</span><span class="o">=</span><span class="p">[{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">user_request</span><span class="p">}],</span>
-    <span class="p">)</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/ad2a0cb52ca4e76da3aee8de740d283f.js"></script>
+<script src="https://gist.github.com/cmenguy/2a517a517465b481c8fb126a45291762.js"></script>
+<script src="https://gist.github.com/cmenguy/958b3ee0b0bab3f0a448559462a37458.js"></script>
 <p>Two things to notice. First, routing uses a cheap, fast model (Haiku) because it's just matching text to a description. You don't need Opus for that. Second, only the matched skill's full instructions get loaded for execution. This is progressive disclosure implemented at the API level: Phase 1 costs ~2K tokens across all skills, Phase 2 costs ~5K tokens for the one skill that fires.</p>
-<h2>Best Practices: What I've Learned</h2>
+<h2>5. Best Practices: What I've Learned</h2>
 <p>After building about a dozen skills across different projects, here's what actually matters:</p>
-<h3>One Skill, One Job</h3>
+<h4>5.1 One Skill, One Job</h4>
 <p>The biggest mistake is building a Swiss Army knife skill. A skill called <code>code-helper</code> that handles code review, test generation, refactoring, and documentation will be mediocre at all four. Split it into four skills. The progressive disclosure system means there's no cost to having many small skills, since only the active one loads.</p>
-<h3>Description Is Everything</h3>
+<h4>5.2 Description Is Everything</h4>
 <p>The description field is the most important part of the frontmatter. It's the search index for your skill. I've seen skills that do exactly the right thing but never activate because their description doesn't include the words a user would actually say.</p>
-<div class="codehilite"><pre><span></span><code><span class="c1"># This skill will never fire when someone says &quot;review my PR&quot;</span>
-<span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Performs</span><span class="nv"> </span><span class="s">code</span><span class="nv"> </span><span class="s">quality</span><span class="nv"> </span><span class="s">analysis.&quot;</span>
-
-<span class="c1"># This skill will fire for natural requests</span>
-<span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;</span>
-<span class="w">  </span><span class="no">Reviews pull requests and code changes for quality,</span>
-<span class="w">  </span><span class="no">security, and best practices. Use when the user asks</span>
-<span class="w">  </span><span class="no">to review a PR, check their code, look at a diff,</span>
-<span class="w">  </span><span class="no">or says &quot;LGTM?&quot; sarcastically.</span>
-</code></pre></div>
-
-<h3>Keep SKILL.md Under 500 Lines</h3>
+<script src="https://gist.github.com/cmenguy/c4137746d16ba94123973f56e3ac9396.js"></script>
+<h4>5.3 Keep SKILL.md Under 500 Lines</h4>
 <p>If your skill instructions exceed 500 lines, you're doing too much in one skill. Split it, or move detailed reference material into <code>references/</code> files that get loaded on demand.</p>
-<h3>Define the Output Format</h3>
+<h4>5.4 Define the Output Format</h4>
 <p>Skills that specify their output format get dramatically better results. Don't leave it to the model's judgment. Tell it what the output looks like:</p>
-<div class="codehilite"><pre><span></span><code><span class="gu">## Output Format</span>
-
-Respond with exactly this structure:
-
-<span class="gu">### Summary</span>
-One paragraph describing the overall assessment.
-
-<span class="gu">### Issues Found</span>
-<span class="k">-</span><span class="w"> </span><span class="gs">**[SEVERITY]**</span> Description of issue (file:line)
-
-<span class="gu">### Recommendation</span>
-APPROVE / REQUEST_CHANGES / BLOCK
-</code></pre></div>
-
-<h3>Test with the Description, Not Just the Skill</h3>
+<script src="https://gist.github.com/cmenguy/a3a0547bc0aa84ea64e2a8c4c5a93a13.js"></script>
+<h4>5.5 Test with the Description, Not Just the Skill</h4>
 <p>Most people test whether a skill works <em>after</em> it activates. That's only half the problem. You also need to test whether it activates <em>when it should</em> and <em>doesn't</em> activate when it shouldn't. I'll come back to this in the evaluation section.</p>
-<h2>The Honest Take: Markdown All the Way Down</h2>
+<h2>6. The Honest Take: Markdown All the Way Down</h2>
 <p>Here's where I get into opinion territory.</p>
 <p><strong>I think skills are the future of how we compose AI capabilities.</strong> The reasons are almost boringly practical: they're just files. They version control with <code>git</code>. They diff, they merge, they code review. A junior engineer can read a <code>SKILL.md</code> and understand what the AI is going to do — try doing that with a fine-tuned model or a 500-line Python orchestration class. The composability is natural: add a skill by dropping a folder, remove it by deleting the folder, share it by copying it to another project.</p>
 <p>The convergence is real. Claude Code and Mistral Vibe both implement the same Agent Skills spec. Other tools (Cursor, OpenHands, Goose) are adopting it. This feels like the early days of REST APIs: not because anyone mandated it, but because the pattern is obvious once you see it.</p>
@@ -471,7 +111,7 @@ APPROVE / REQUEST_CHANGES / BLOCK
 <p>This shouldn't work as well as it does. I spent years building systems with strict schemas, type checking, validation layers. All the machinery you need because software is brittle and does exactly what you tell it, not what you mean. Skills flip this on its head: you write what you mean in natural language, and the model figures out the "what you tell it" part. It's powerful and it makes me uncomfortable in equal measure.</p>
 <p><strong>Where I'm genuinely unsure: complex multi-step skills.</strong> Our deploy-review skill is ~50 lines of markdown and works great. But I've tried building skills that are essentially runbooks: 200+ lines of conditional logic, branching paths, error handling. At that complexity, the model starts dropping steps, confusing sequences, and making creative interpretations of instructions that were meant to be followed literally.</p>
 <p>There seems to be a ceiling, somewhere around 100-150 lines of instruction, where the model transitions from "reliably following the recipe" to "improvising on a theme." Below that ceiling, skills are magic. Above it, they're a gamble. I don't know exactly where that ceiling is, and I suspect it varies by model, by task complexity, and by how well the instructions are written. But it exists, and anyone building complex skills will hit it.</p>
-<h2>The Missing Piece: Skill-First Evaluation</h2>
+<h2>7. The Missing Piece: Skill-First Evaluation</h2>
 <p>This brings me to what I think is the most important unsolved problem in the skills ecosystem: <strong>how do you test a skill?</strong></p>
 <p>Right now, most teams test skills manually. They activate the skill, run it against a few inputs, eyeball the output, and call it good. This is the "we tested in prod" of the skills world, and it scales exactly as well as that phrase implies.</p>
 <p>What we need is skill-first evaluation, automated tests that verify:</p>
@@ -481,79 +121,14 @@ APPROVE / REQUEST_CHANGES / BLOCK
 <li><strong>Edge case handling</strong>: What happens with ambiguous inputs? Empty inputs? Adversarial inputs?</li>
 </ol>
 <p>This is starting to emerge. The Agent Skills spec includes an <code>evals.json</code> concept, a file that lives alongside <code>SKILL.md</code> and defines test cases:</p>
-<div class="codehilite"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;skill&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;deploy-review&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;evals&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">    </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;input&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Review the deployment plan in deploy.yaml&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;expected_activation&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;expected_output_contains&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;Status:&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Risks:&quot;</span><span class="p">],</span>
-<span class="w">      </span><span class="nt">&quot;expected_tools_used&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;Read&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Bash&quot;</span><span class="p">]</span>
-<span class="w">    </span><span class="p">},</span>
-<span class="w">    </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;input&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;What&#39;s the weather today?&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;expected_activation&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
-<span class="w">    </span><span class="p">},</span>
-<span class="w">    </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;input&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Ship it to production&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;expected_activation&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;expected_output_contains&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;APPROVE&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;BLOCK&quot;</span><span class="p">]</span>
-<span class="w">    </span><span class="p">}</span>
-<span class="w">  </span><span class="p">]</span>
-<span class="p">}</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/f74f16d626e29616735bf88fb04a64cb.js"></script>
 <p>This is promising but early. A few things I'd want to see mature:</p>
 <p><strong>Activation precision/recall metrics.</strong> Not just "did it fire" but "across 100 diverse phrasings of deploy-related requests, how often does it fire?" and "across 100 non-deploy requests, how often does it incorrectly fire?" This is a classic information retrieval problem, and we have good frameworks for measuring it.</p>
 <p><strong>Multi-step verification.</strong> For complex skills, checking the final output isn't enough. You need to verify intermediate steps. Did it actually run the test suite before approving, or did it skip to the approval? This requires either tool call tracing or structured intermediate outputs.</p>
 <p><strong>Regression testing across model updates.</strong> When Sonnet 4.7 drops, does your skill still work? Model updates can change how instructions are interpreted. Skills need regression tests the same way code needs them. Run the eval suite before and after, compare results.</p>
-<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="nf">eval_skill</span><span class="p">(</span><span class="n">skill_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">evals_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Run skill evaluations and return metrics.&quot;&quot;&quot;</span>
-    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">evals_path</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-        <span class="n">evals</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
-
-    <span class="n">results</span> <span class="o">=</span> <span class="p">{</span>
-        <span class="s2">&quot;activation_true_pos&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
-        <span class="s2">&quot;activation_false_pos&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
-        <span class="s2">&quot;activation_true_neg&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
-        <span class="s2">&quot;activation_false_neg&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
-        <span class="s2">&quot;output_match&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
-        <span class="s2">&quot;output_mismatch&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
-    <span class="p">}</span>
-
-    <span class="n">registry</span> <span class="o">=</span> <span class="n">load_skill_registry</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">skill_dir</span><span class="p">))</span>
-
-    <span class="k">for</span> <span class="n">case</span> <span class="ow">in</span> <span class="n">evals</span><span class="p">[</span><span class="s2">&quot;evals&quot;</span><span class="p">]:</span>
-        <span class="c1"># Test activation</span>
-        <span class="n">activated</span> <span class="o">=</span> <span class="n">route_to_skill</span><span class="p">(</span><span class="n">case</span><span class="p">[</span><span class="s2">&quot;input&quot;</span><span class="p">],</span> <span class="n">registry</span><span class="p">)</span>
-        <span class="n">expected</span> <span class="o">=</span> <span class="n">case</span><span class="p">[</span><span class="s2">&quot;expected_activation&quot;</span><span class="p">]</span>
-
-        <span class="k">if</span> <span class="n">activated</span> <span class="ow">and</span> <span class="n">expected</span><span class="p">:</span>
-            <span class="n">results</span><span class="p">[</span><span class="s2">&quot;activation_true_pos&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
-        <span class="k">elif</span> <span class="n">activated</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">expected</span><span class="p">:</span>
-            <span class="n">results</span><span class="p">[</span><span class="s2">&quot;activation_false_pos&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
-        <span class="k">elif</span> <span class="ow">not</span> <span class="n">activated</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">expected</span><span class="p">:</span>
-            <span class="n">results</span><span class="p">[</span><span class="s2">&quot;activation_true_neg&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="n">results</span><span class="p">[</span><span class="s2">&quot;activation_false_neg&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
-
-        <span class="c1"># Test output (only if activation was expected)</span>
-        <span class="k">if</span> <span class="n">expected</span> <span class="ow">and</span> <span class="s2">&quot;expected_output_contains&quot;</span> <span class="ow">in</span> <span class="n">case</span><span class="p">:</span>
-            <span class="n">output</span> <span class="o">=</span> <span class="n">execute_skill</span><span class="p">(</span><span class="n">case</span><span class="p">[</span><span class="s2">&quot;input&quot;</span><span class="p">],</span> <span class="n">skill_dir</span><span class="p">)</span>
-            <span class="n">matches</span> <span class="o">=</span> <span class="nb">all</span><span class="p">(</span>
-                <span class="n">phrase</span> <span class="ow">in</span> <span class="n">output</span>
-                <span class="k">for</span> <span class="n">phrase</span> <span class="ow">in</span> <span class="n">case</span><span class="p">[</span><span class="s2">&quot;expected_output_contains&quot;</span><span class="p">]</span>
-            <span class="p">)</span>
-            <span class="k">if</span> <span class="n">matches</span><span class="p">:</span>
-                <span class="n">results</span><span class="p">[</span><span class="s2">&quot;output_match&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="n">results</span><span class="p">[</span><span class="s2">&quot;output_mismatch&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
-
-    <span class="k">return</span> <span class="n">results</span>
-</code></pre></div>
-
+<script src="https://gist.github.com/cmenguy/17a26dc326ebfd250a59dc4ad014b99d.js"></script>
 <p>This is a sketch, not production code. But the shape of the solution is clear: treat skill evaluation like information retrieval evaluation. Measure precision and recall for activation. Measure adherence for execution. Run it automatically, track it over time, flag regressions.</p>
-<h2>What's Next</h2>
+<h2>8. What's Next</h2>
 <p>Skills are the single-agent answer to the multi-agent question. For most teams, most of the time, a well-designed set of skills on a single capable model will outperform a constellation of specialized agents. Less complexity, less latency, better debugging, and critically, the ability for anyone on the team to read the skill file and understand what the AI is supposed to do.</p>
 <p>The tooling is converging, the spec is open, and the pattern works. What's missing is the evaluation layer, and I suspect that's where the next wave of investment will go. Right now we're in the "vibes-based testing" era of skills. The teams that move to rigorous, automated skill evaluation first will ship more reliably and iterate faster. The <code>evals.json</code> pattern is the seed of that future, and I'm watching it closely.</p>
 <hr />
