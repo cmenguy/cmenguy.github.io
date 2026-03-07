@@ -9,16 +9,16 @@
 <h2>1. Why Not Just Context Engineering?</h2>
 <p>Before we get into skills, let's address the elephant: why can't you just stuff everything into the system prompt?</p>
 <p>You can, and many teams do. Here's what that looks like in practice:</p>
-<script src="https://gist.github.com/cmenguy/533e4e828c6ce28e23dd66befd6c69a1.js"></script>
+<div><a href="https://gist.github.com/cmenguy/0aa755f606bc49b09023e80015299f6e">https://gist.github.com/cmenguy/0aa755f606bc49b09023e80015299f6e</a></div>
 <p>This works at three capabilities. At fifteen, you start noticing the model sometimes confuses which tool sequence to use. At thirty, you're managing a 10,000-token system prompt where changing one capability risks breaking another. And testing? You're testing the entire system prompt every time you touch a single capability.</p>
 <p>The failure mode is subtle. The model doesn't crash, it just starts blending instructions. It'll use the billing escalation flow for a technical issue, or skip a step in onboarding because the adjacent capability's instructions bled in. I've seen this happen in production, and it's the worst kind of bug because the output looks plausible.</p>
 <p>Skills solve this by <strong>scoping instructions to a single capability</strong> and <strong>loading only what's relevant</strong>. Instead of a 10K-token system prompt where everything is always present, you have focused instruction sets that get loaded on demand. The model sees the billing skill <em>or</em> the technical support skill, never a soup of both.</p>
 <h2>2. Anatomy of a Skill</h2>
 <p>A skill is a folder. At minimum it contains one file: <code>SKILL.md</code>. That's it. Here's the structure:</p>
-<script src="https://gist.github.com/cmenguy/4e09f901a66d5786b5d2c26112fd4621.js"></script>
+<div><a href="https://gist.github.com/cmenguy/3a599eee497cc15c20faf3eb088b2670">https://gist.github.com/cmenguy/3a599eee497cc15c20faf3eb088b2670</a></div>
 <p>The <code>SKILL.md</code> has two parts: frontmatter (metadata) and body (instructions). Let me walk through a real example. I'll use a "deploy review" skill, something that reviews a deployment plan before pushing to production. This is a skill I actually built at work, simplified for this post.</p>
 <h4>2.1 The Frontmatter</h4>
-<script src="https://gist.github.com/cmenguy/3f749c331f44cc733622f5e80d89c65c.js"></script>
+<div><a href="https://gist.github.com/cmenguy/c1cc5feb5f699d8cee7d0de95b3c77e5">https://gist.github.com/cmenguy/c1cc5feb5f699d8cee7d0de95b3c77e5</a></div>
 <p>Each field matters:</p>
 <ul>
 <li><strong><code>name</code></strong>: Lowercase, hyphens only. This becomes the <code>/deploy-review</code> slash command.</li>
@@ -28,66 +28,66 @@
 </ul>
 <h4>2.2 The Body</h4>
 <p>The body is markdown instructions. Here's a simplified version:</p>
-<script src="https://gist.github.com/cmenguy/e7333542fd006d838d98dc95e0251359.js"></script>
+<div><a href="https://gist.github.com/cmenguy/7dff8f24b49add30f751ae9a92c7b0c0">https://gist.github.com/cmenguy/7dff8f24b49add30f751ae9a92c7b0c0</a></div>
 <p>Notice what this is: <em>scoped instructions for a specific task</em>. Not a general system prompt trying to do everything. The model loads this when it needs to review a deployment, follows the steps, and produces the expected output format. When it's doing something else, like writing code or answering questions, these instructions aren't in context and can't interfere.</p>
 <h4>2.3 Progressive Disclosure</h4>
 <p>Here's a design principle that took me a while to appreciate: <strong>the agent doesn't load the full skill upfront</strong>. It works in two phases:</p>
 <p><strong>Phase 1 — Discovery (~100 tokens):</strong> The agent reads the <code>name</code> and <code>description</code> of every available skill. This is cheap. For 20 skills, that's ~2,000 tokens of metadata.</p>
 <p><strong>Phase 2 — Activation (&lt;5,000 tokens):</strong> When the agent decides a skill is relevant (based on the description matching the user's request), it loads the full <code>SKILL.md</code>. This is the full instruction set, but only for the activated skill.</p>
-<script src="https://gist.github.com/cmenguy/f61870ae694e4a7e6748fc2fde8b3857.js"></script>
+<div><a href="https://gist.github.com/cmenguy/1bb57584b958fe988cb5f55169ab6c35">https://gist.github.com/cmenguy/1bb57584b958fe988cb5f55169ab6c35</a></div>
 <p>This is why the description matters so much. A bad description means the skill never gets activated:</p>
-<script src="https://gist.github.com/cmenguy/c8de433359eb859c0a5019159e3d1491.js"></script>
+<div><a href="https://gist.github.com/cmenguy/95a4939b763bc153dfae86648761ed4a">https://gist.github.com/cmenguy/95a4939b763bc153dfae86648761ed4a</a></div>
 <h4>2.4 Supporting Files</h4>
 <p>For complex skills, the <code>SKILL.md</code> stays focused and references separate files for the heavy stuff:</p>
-<script src="https://gist.github.com/cmenguy/a05eda110ffa46f81378cb50a9e39fd8.js"></script>
+<div><a href="https://gist.github.com/cmenguy/8c2bcdabc26f208dddae6193637f8633">https://gist.github.com/cmenguy/8c2bcdabc26f208dddae6193637f8633</a></div>
 <p>The agent loads <code>RUNBOOK.md</code> only when it needs the detailed steps, not every time the skill activates. This keeps the token budget tight and avoids drowning the model in irrelevant detail.</p>
 <h2>3. Skills Across Agentic Harnesses</h2>
 <p>The <a href="https://agentskills.io">Agent Skills specification</a> is an open standard, which means the same <code>SKILL.md</code> file works across multiple tools. In practice, there are quirks. Let me walk through how skills integrate with three major agentic harnesses, using our deploy-review skill as the running example.</p>
 <h4>3.1 Claude Code</h4>
 <p>Claude Code has the most mature skills implementation. Skills live in a few places, in priority order:</p>
-<script src="https://gist.github.com/cmenguy/68965cb7e76fe9fbeca158be87bd9b55.js"></script>
+<div><a href="https://gist.github.com/cmenguy/3595a4471725dce52d084494b1338714">https://gist.github.com/cmenguy/3595a4471725dce52d084494b1338714</a></div>
 <p>Project-level skills are the most common. They travel with the repo, so your whole team gets them via <code>git pull</code>.</p>
 <p>Claude Code adds some extensions beyond the base spec:</p>
-<script src="https://gist.github.com/cmenguy/b1273059fb0b33bf8d8edf4871968128.js"></script>
+<div><a href="https://gist.github.com/cmenguy/6747267ab9ac08132b5912715bdb958f">https://gist.github.com/cmenguy/6747267ab9ac08132b5912715bdb958f</a></div>
 <p><strong><code>context: fork</code></strong> is particularly useful. It runs the skill in a subagent with its own context, so a long skill execution doesn't pollute the main conversation. The tradeoff is that the subagent can't see prior conversation history.</p>
 <p><strong>Dynamic context injection</strong> is another Claude Code extension. You can execute shell commands at skill load time:</p>
-<script src="https://gist.github.com/cmenguy/ba97b5eff7454c41db99e8bf02363db5.js"></script>
+<div><a href="https://gist.github.com/cmenguy/c1ff7dd03e2b8a4f85b50e8e8c5aaa87">https://gist.github.com/cmenguy/c1ff7dd03e2b8a4f85b50e8e8c5aaa87</a></div>
 <p>The <code>!`command`</code> syntax runs the command and injects its output into the skill context before the model sees it. So the model gets live infrastructure state without needing to run those commands itself.</p>
 <h4>3.2 Mistral Vibe</h4>
 <p>Mistral's Vibe agent implements the same Agent Skills spec. Skills go in:</p>
-<script src="https://gist.github.com/cmenguy/67eee1e6d01dbfcfbbe40d01884e23db.js"></script>
+<div><a href="https://gist.github.com/cmenguy/5568a904cb935c669cbef810c609ac55">https://gist.github.com/cmenguy/5568a904cb935c669cbef810c609ac55</a></div>
 <p>The frontmatter and body format are identical. Your <code>SKILL.md</code> from Claude Code works in Vibe without changes. Vibe adds its own agent system on top:</p>
-<script src="https://gist.github.com/cmenguy/e236e262a465ea2eea144653e022296f.js"></script>
+<div><a href="https://gist.github.com/cmenguy/fb17e525de26dbeff979aa551abd1a5a">https://gist.github.com/cmenguy/fb17e525de26dbeff979aa551abd1a5a</a></div>
 <p>In Vibe, you can define custom agents (separate from skills) that reference skills as part of their behavior. The distinction is: a <strong>skill</strong> is a reusable capability, an <strong>agent</strong> is a persona with specific tools and approval settings that might <em>use</em> skills.</p>
 <h4>3.3 OpenAI Codex</h4>
 <p>Here's where it gets interesting. Codex doesn't have a formal skills system as of early 2026. Instead, it uses two mechanisms that approximate skills:</p>
 <p><strong>AGENTS.md files</strong> serve a similar purpose to skills. They're markdown instructions that configure agent behavior:</p>
-<script src="https://gist.github.com/cmenguy/d5df36f82a83eadab4f181025221f7ac.js"></script>
+<div><a href="https://gist.github.com/cmenguy/748870ff2260e6d9d3a010d1be90b9b8">https://gist.github.com/cmenguy/748870ff2260e6d9d3a010d1be90b9b8</a></div>
 <p>The key difference: AGENTS.md is monolithic. All instructions live in one file (or a few files), always loaded. There's no progressive disclosure, no activation-based loading, no isolated context. It's closer to the "stuff it in the system prompt" approach, just organized as a file.</p>
 <p><strong>Custom instructions</strong> in Codex's settings are the other mechanism: persistent behavioral instructions. But again, they're always on, not loaded on-demand.</p>
-<script src="https://gist.github.com/cmenguy/f75d16561e23de7d6dacf761f523c9d9.js"></script>
+<div><a href="https://gist.github.com/cmenguy/4a7c209cfa2535808b00fb589f0fb3f6">https://gist.github.com/cmenguy/4a7c209cfa2535808b00fb589f0fb3f6</a></div>
 <p>This doesn't mean Codex is worse. It's a different design philosophy. Codex optimizes for simplicity (one file, always loaded), while Claude Code and Vibe optimize for modularity (many skills, loaded on demand). For small projects with 2-3 capabilities, the Codex approach is simpler. For large projects with dozens of capabilities, the skill-based approach scales better.</p>
 <h2>4. Skills via the Claude API</h2>
 <p>Skills in Claude Code and Vibe are great for interactive development. But what if you're building a backend service (a customer support bot, an internal tool, a CI/CD pipeline) that needs skill-like behavior? You need skills at the API level.</p>
 <p>The Claude API supports this through two mechanisms: the <strong>Agent SDK</strong> and the <strong>container-based skills API</strong>.</p>
 <h4>4.1 The Agent SDK Approach</h4>
 <p>The Claude Agent SDK lets you load skills from the filesystem, just like Claude Code does:</p>
-<script src="https://gist.github.com/cmenguy/14dbc553a000fadb6c904e01b0fa93a3.js"></script>
+<div><a href="https://gist.github.com/cmenguy/9634ada084c2642279c90e001b8ec8d5">https://gist.github.com/cmenguy/9634ada084c2642279c90e001b8ec8d5</a></div>
 <p>This reads your <code>SKILL.md</code> files from disk, handles the progressive disclosure, and manages the tool loop automatically. The agent decides which skill to activate based on the prompt, just like the interactive experience.</p>
 <p>You can also define skills programmatically, which is useful when your skills come from a database or API rather than a filesystem:</p>
-<script src="https://gist.github.com/cmenguy/c941c37cd9acff0cdad8477382892908.js"></script>
+<div><a href="https://gist.github.com/cmenguy/b7caea939fe7b0258cde8259fbd44a72">https://gist.github.com/cmenguy/b7caea939fe7b0258cde8259fbd44a72</a></div>
 <h4>4.2 The Container-Based Approach</h4>
 <p>For skills that need to produce files (generate reports, create spreadsheets, build presentations), the Claude API supports a container model where skills execute in a sandboxed environment with filesystem access:</p>
-<script src="https://gist.github.com/cmenguy/351879e29ccc1ceae0c22260ae8d2a22.js"></script>
+<div><a href="https://gist.github.com/cmenguy/d0da5eac055dbbd027f24d860daa6ea4">https://gist.github.com/cmenguy/d0da5eac055dbbd027f24d860daa6ea4</a></div>
 <p>The <code>container</code> parameter spins up an execution environment on Anthropic's servers. The skill (<code>xlsx</code> in this case) gives the model the knowledge and tools to create Excel files. The model writes files inside the container, and you get back <code>file_id</code> references you can download.</p>
 <p>What makes this powerful for custom skills is the pattern: <strong>read a skill definition, inject it as context, give the model filesystem access in a container, let it execute</strong>. You can build your own skill runner:</p>
-<script src="https://gist.github.com/cmenguy/fcb74114285991863758718ad4ef8c27.js"></script>
+<div><a href="https://gist.github.com/cmenguy/0a290a320c2e923e318e36541fbdcb1d">https://gist.github.com/cmenguy/0a290a320c2e923e318e36541fbdcb1d</a></div>
 <p>This is a minimal skill runner. It loads a <code>SKILL.md</code> as the system prompt and runs the user's request against it. In production, you'd add tool result handling (the response might contain <code>tool_use</code> blocks that need execution), multi-turn conversation support, and error handling. But the core pattern is this simple: <strong>skill instructions become system prompt, user intent becomes the message</strong>.</p>
 <h4>4.3 Building a Multi-Skill Router</h4>
 <p>Here's the pattern I've converged on for services that need multiple skills: a router that mimics the progressive disclosure from Claude Code.</p>
-<script src="https://gist.github.com/cmenguy/ad2a0cb52ca4e76da3aee8de740d283f.js"></script>
-<script src="https://gist.github.com/cmenguy/2a517a517465b481c8fb126a45291762.js"></script>
-<script src="https://gist.github.com/cmenguy/958b3ee0b0bab3f0a448559462a37458.js"></script>
+<div><a href="https://gist.github.com/cmenguy/b4ca7447189c285d3ca86e7eed3c7a5c">https://gist.github.com/cmenguy/b4ca7447189c285d3ca86e7eed3c7a5c</a></div>
+<div><a href="https://gist.github.com/cmenguy/5ee298f7b5c0a3bd6ae0f00cf57ab352">https://gist.github.com/cmenguy/5ee298f7b5c0a3bd6ae0f00cf57ab352</a></div>
+<div><a href="https://gist.github.com/cmenguy/34c9a4763036ba05a8a9699c3c373860">https://gist.github.com/cmenguy/34c9a4763036ba05a8a9699c3c373860</a></div>
 <p>Two things to notice. First, routing uses a cheap, fast model (Haiku) because it's just matching text to a description. You don't need Opus for that. Second, only the matched skill's full instructions get loaded for execution. This is progressive disclosure implemented at the API level: Phase 1 costs ~2K tokens across all skills, Phase 2 costs ~5K tokens for the one skill that fires.</p>
 <h2>5. Best Practices: What I've Learned</h2>
 <p>After building about a dozen skills across different projects, here's what actually matters:</p>
@@ -95,12 +95,12 @@
 <p>The biggest mistake is building a Swiss Army knife skill. A skill called <code>code-helper</code> that handles code review, test generation, refactoring, and documentation will be mediocre at all four. Split it into four skills. The progressive disclosure system means there's no cost to having many small skills, since only the active one loads.</p>
 <h4>5.2 Description Is Everything</h4>
 <p>The description field is the most important part of the frontmatter. It's the search index for your skill. I've seen skills that do exactly the right thing but never activate because their description doesn't include the words a user would actually say.</p>
-<script src="https://gist.github.com/cmenguy/c4137746d16ba94123973f56e3ac9396.js"></script>
+<div><a href="https://gist.github.com/cmenguy/2b1a2da463e9022eaac745fc03a87bb5">https://gist.github.com/cmenguy/2b1a2da463e9022eaac745fc03a87bb5</a></div>
 <h4>5.3 Keep SKILL.md Under 500 Lines</h4>
 <p>If your skill instructions exceed 500 lines, you're doing too much in one skill. Split it, or move detailed reference material into <code>references/</code> files that get loaded on demand.</p>
 <h4>5.4 Define the Output Format</h4>
 <p>Skills that specify their output format get dramatically better results. Don't leave it to the model's judgment. Tell it what the output looks like:</p>
-<script src="https://gist.github.com/cmenguy/a3a0547bc0aa84ea64e2a8c4c5a93a13.js"></script>
+<div><a href="https://gist.github.com/cmenguy/28492d5e29bcb7e452de9dac234a02a6">https://gist.github.com/cmenguy/28492d5e29bcb7e452de9dac234a02a6</a></div>
 <h4>5.5 Test with the Description, Not Just the Skill</h4>
 <p>Most people test whether a skill works <em>after</em> it activates. That's only half the problem. You also need to test whether it activates <em>when it should</em> and <em>doesn't</em> activate when it shouldn't. I'll come back to this in the evaluation section.</p>
 <h2>6. The Honest Take: Markdown All the Way Down</h2>
@@ -121,12 +121,12 @@
 <li><strong>Edge case handling</strong>: What happens with ambiguous inputs? Empty inputs? Adversarial inputs?</li>
 </ol>
 <p>This is starting to emerge. The Agent Skills spec includes an <code>evals.json</code> concept, a file that lives alongside <code>SKILL.md</code> and defines test cases:</p>
-<script src="https://gist.github.com/cmenguy/f74f16d626e29616735bf88fb04a64cb.js"></script>
+<div><a href="https://gist.github.com/cmenguy/941acc16f4fc41afed9ad3f1170bc977">https://gist.github.com/cmenguy/941acc16f4fc41afed9ad3f1170bc977</a></div>
 <p>This is promising but early. A few things I'd want to see mature:</p>
 <p><strong>Activation precision/recall metrics.</strong> Not just "did it fire" but "across 100 diverse phrasings of deploy-related requests, how often does it fire?" and "across 100 non-deploy requests, how often does it incorrectly fire?" This is a classic information retrieval problem, and we have good frameworks for measuring it.</p>
 <p><strong>Multi-step verification.</strong> For complex skills, checking the final output isn't enough. You need to verify intermediate steps. Did it actually run the test suite before approving, or did it skip to the approval? This requires either tool call tracing or structured intermediate outputs.</p>
 <p><strong>Regression testing across model updates.</strong> When Sonnet 4.7 drops, does your skill still work? Model updates can change how instructions are interpreted. Skills need regression tests the same way code needs them. Run the eval suite before and after, compare results.</p>
-<script src="https://gist.github.com/cmenguy/17a26dc326ebfd250a59dc4ad014b99d.js"></script>
+<div><a href="https://gist.github.com/cmenguy/eec3156de6ecaba88a9a723d0c56dc1b">https://gist.github.com/cmenguy/eec3156de6ecaba88a9a723d0c56dc1b</a></div>
 <p>This is a sketch, not production code. But the shape of the solution is clear: treat skill evaluation like information retrieval evaluation. Measure precision and recall for activation. Measure adherence for execution. Run it automatically, track it over time, flag regressions.</p>
 <h2>8. What's Next</h2>
 <p>Skills are the single-agent answer to the multi-agent question. For most teams, most of the time, a well-designed set of skills on a single capable model will outperform a constellation of specialized agents. Less complexity, less latency, better debugging, and critically, the ability for anyone on the team to read the skill file and understand what the AI is supposed to do.</p>

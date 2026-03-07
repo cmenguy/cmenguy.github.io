@@ -23,7 +23,7 @@ Here's a way to think about what's happening, in terms we understand. For most o
 Think of the old model like this:
 
 
-https://gist.github.com/cmenguy/77c0c33c7185b07612d847ee1c225b62
+https://gist.github.com/cmenguy/f5b2e850fff72b688efd2587c729f06f
 
 
 You are the loop. You decompose, implement, review, test, ship. Your value is in the quality of each step and your judgment about what to build.
@@ -31,7 +31,7 @@ You are the loop. You decompose, implement, review, test, ship. Your value is in
 Now here's what the agentic model looks like:
 
 
-https://gist.github.com/cmenguy/eca6e481f0a1fae6d8e4927c327d34d9
+https://gist.github.com/cmenguy/e68d9ffa103dfacf3a5186910df3efbd
 
 
 You're no longer the loop. You're the orchestrator. Your value shifts from "can you write this code" to "do you know what code should exist, why, and how to verify it's correct." The implementing is increasingly delegated. The judgment, architecture, and customer-facing intent are what remain uniquely yours.
@@ -39,7 +39,7 @@ You're no longer the loop. You're the orchestrator. Your value shifts from "can 
 This isn't hypothetical. Here's what my actual workflow looks like now with Claude Code:
 
 
-https://gist.github.com/cmenguy/cf3625be9669e08af1c30ae30f83ffcf
+https://gist.github.com/cmenguy/f50921a8f50784c5dfd3a6f1f10100b0
 
 
 The time I save on implementation goes straight into customer discovery, architecture review, and cross-team coordination. That's the real shift.
@@ -83,7 +83,7 @@ This is where it gets personal for me. I'm an ML engineer. My specialty is suppo
 Agentic AI is lowering that barrier fast. Here's an example. This is what deploying a model with vLLM used to require: understanding CUDA, memory management, quantization trade-offs.
 
 
-https://gist.github.com/cmenguy/3eadd2826a60b1d63ae68918fff17ad0
+https://gist.github.com/cmenguy/8728086bb703c6e141710b70a39167f6
 
 
 Each of those flags represents a decision that used to require domain expertise. Tensor parallelism? You need to know your GPU topology. Memory utilization at 0.9? You need to understand KV cache sizing. AWQ quantization? You need to know the accuracy-latency trade-off for your specific use case.

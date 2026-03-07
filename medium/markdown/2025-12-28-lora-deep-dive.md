@@ -37,7 +37,7 @@ That's it. That's the whole trick. Instead of learning a ![equation](https://lat
 Let me make this concrete with a picture. Say you have a weight matrix in a transformer attention layer with $d = 4096$ and $k = 4096$:
 
 
-https://gist.github.com/cmenguy/c27c1db10428480df5d6a325329c4878
+https://gist.github.com/cmenguy/3bfb7e1e2eebaa1144996a4f473961ee
 
 
 With $r = 8$, you're training 65,536 parameters instead of 16.7 million — a **256x reduction** for this single layer. Across the entire model, LoRA typically trains 0.1-1% of the total parameters.
@@ -51,7 +51,7 @@ During a forward pass, the original weight and the LoRA update combine like this
 Here's what that looks like step by step:
 
 
-https://gist.github.com/cmenguy/3475a427558abec8902bef0307e2e148
+https://gist.github.com/cmenguy/afda6bc6a51470c93451a7705593c39c
 
 
 The pretrained weights ![equation](https://latex.codecogs.com/png.latex?\inline%20W_0) stay **completely frozen**: no gradients, no optimizer states, no memory overhead. Only $B$ and $A$ receive gradients. This is why LoRA is so memory-efficient: you only store optimizer states for the tiny adapter matrices, not the full model.
@@ -59,13 +59,13 @@ The pretrained weights ![equation](https://latex.codecogs.com/png.latex?\inline%
 Let's implement this from scratch in PyTorch so you can see exactly what's happening:
 
 
-https://gist.github.com/cmenguy/3d9417d98a662f6a687c22ae32a61df8
+https://gist.github.com/cmenguy/290e541aeceba5567c8835964b6e31ac
 
 
 A few things to notice here. The original layer is frozen (`requires_grad = False`). And there's a `scaling` factor that we'll come back to shortly. Now the adapter matrices:
 
 
-https://gist.github.com/cmenguy/f50194f9ce5751aaffc700d1139e82c8
+https://gist.github.com/cmenguy/a73e0fcf274211e492c75fbc2e55f9d7
 
 
 This initialization is critical. $B$ starts at zero, which means ![equation](https://latex.codecogs.com/png.latex?\inline%20%5CDelta%20W%20%3D%20BA%20%3D%200) at the beginning of training. The model starts producing exactly the same outputs as the pretrained model. Training then gradually learns the update. $A$ uses Kaiming uniform initialization to break symmetry.
@@ -73,17 +73,17 @@ This initialization is critical. $B$ starts at zero, which means ![equation](htt
 The forward pass puts it all together:
 
 
-https://gist.github.com/cmenguy/1f9a000e958e795b1685c95cf15a4c58
+https://gist.github.com/cmenguy/9854d3672dbf6f08338e1a21b99d801f
 
 
 Two separate matrix multiplications through the bottleneck: ![equation](https://latex.codecogs.com/png.latex?\inline%20x%20%5Ccdot%20A%5ET) compresses to rank $r$, then ![equation](https://latex.codecogs.com/png.latex?\inline%20%5Ccdot%20B%5ET) projects back up, plus the scaling factor. Let's see the parameter savings in action:
 
 
-https://gist.github.com/cmenguy/9b19a3b762baacd1e8a925046b37c571
+https://gist.github.com/cmenguy/48771f865f7b8c495c019b59ff14b069
 
 
 
-https://gist.github.com/cmenguy/91745082cbba6d1186451874d8544758
+https://gist.github.com/cmenguy/6ca30d208e33cbe821a6572c98afe60f
 
 
 ## 4. What Rank Actually Means
@@ -99,11 +99,11 @@ The original LoRA paper found something surprising: even $r = 1$ or $r = 2$ work
 Here's a practical way to see this. Let's create a weight update, compute its singular values, and see how the energy concentrates:
 
 
-https://gist.github.com/cmenguy/a3c24fa21660b940b6d615ff732b967c
+https://gist.github.com/cmenguy/12c689c29f4041de760e47f73d39c533
 
 
 
-https://gist.github.com/cmenguy/278c20dfae46e7985d6d1e381ba8ed89
+https://gist.github.com/cmenguy/d98120546528ab4c9e71307035aed29d
 
 
 A random matrix spreads its energy uniformly across all singular values, which is why even $r = 64$ only captures ~2%. But real fine-tuning updates aren't random. They concentrate on a few directions that matter for the task. In practice, $r = 8$ or $r = 16$ captures the meaningful signal while ignoring noise.
@@ -111,7 +111,7 @@ A random matrix spreads its energy uniformly across all singular values, which i
 #### 4.1 Choosing Rank in Practice
 
 
-https://gist.github.com/cmenguy/fbeef349cd77b522c3f445ee77ff9e1a
+https://gist.github.com/cmenguy/814c4e7c599674dd02fb2708d754947a
 
 
 The sweet spot for most tasks is ![equation](https://latex.codecogs.com/png.latex?\inline%20r%20%5Cin%20%5B8%2C%2016%5D). Going higher adds parameters without proportional improvement. Going lower risks underfitting complex tasks.
@@ -129,7 +129,7 @@ Without this scaling, changing the rank would change the magnitude of the LoRA u
 Here's the practical implication. When `lora_alpha = 2 * r` (the common convention), the scaling factor is ![equation](https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7B2r%7D%7Br%7D%20%3D%202). The LoRA update gets amplified by 2x. This means:
 
 
-https://gist.github.com/cmenguy/cd0edecc0b9aed432bc26bbad0de6b2a
+https://gist.github.com/cmenguy/f4621e76ea6433dfce79b6658b1d5998
 
 
 You can think of `lora_alpha` as a "volume knob" for the LoRA update. Higher alpha amplifies the adapter's effect. The convention of `alpha = 2 * r` works well in practice, but you can tune it, especially if you notice training instability (lower alpha) or the model not learning fast enough (higher alpha).
@@ -137,11 +137,11 @@ You can think of `lora_alpha` as a "volume knob" for the LoRA update. Higher alp
 Let's see this in action:
 
 
-https://gist.github.com/cmenguy/d2224c3f6717e69633d164302a1e9624
+https://gist.github.com/cmenguy/3f5aca4b0e33e4039641b995698d2655
 
 
 
-https://gist.github.com/cmenguy/9bd537e9fd0b92af57474398b3578a3a
+https://gist.github.com/cmenguy/f3fde377c75d1606cfcddf8c6f19089d
 
 
 Linear relationship: double the alpha, double the output magnitude. The learning rate and scaling factor interact, which is why the convention of fixing `alpha = 2r` and tuning only the learning rate is the pragmatic approach.
@@ -151,7 +151,7 @@ Linear relationship: double the alpha, double the output magnitude. The learning
 In a transformer, LoRA is typically applied to the attention projection matrices. Looking at a standard multi-head attention block:
 
 
-https://gist.github.com/cmenguy/61a0b29d8fd667ed0eb0523c80c18948
+https://gist.github.com/cmenguy/573bae4afe4b56952312bda4d041feef
 
 
 The original paper applied LoRA only to ![equation](https://latex.codecogs.com/png.latex?\inline%20W_q) and ![equation](https://latex.codecogs.com/png.latex?\inline%20W_v), but modern practice targets all four attention projections. Some people also include the MLP layers (`gate_proj`, `up_proj`, `down_proj`), though the marginal benefit varies.
@@ -159,23 +159,23 @@ The original paper applied LoRA only to ![equation](https://latex.codecogs.com/p
 Here's the config you'll see in most production setups:
 
 
-https://gist.github.com/cmenguy/8349a9815533ee8e47fee7332dad633a
+https://gist.github.com/cmenguy/e6a459e7da5c7175765a93cf6d6ce068
 
 
 And if you want to be more aggressive:
 
 
-https://gist.github.com/cmenguy/a8890c2b0457a085e0b4786b6fc66836
+https://gist.github.com/cmenguy/0e105a24b3d89546bc169ed73f413766
 
 
 Let's count the parameter difference across a full model:
 
 
-https://gist.github.com/cmenguy/ab35ef07d4ec0c29dffec1ce0c27e161
+https://gist.github.com/cmenguy/f62d523f6357048e4fdd55804b65572a
 
 
 
-https://gist.github.com/cmenguy/ee21a687d7e78c9d2428cbc820ac62f7
+https://gist.github.com/cmenguy/bff7884cdb59169327686bba8f8998f6
 
 
 Even the aggressive "all projections" approach trains less than 1% of the model. That's LoRA's superpower.
@@ -187,21 +187,21 @@ Let's put all the pieces together with a real training example. We'll fine-tune 
 First, let's create a minimal dataset and load a model with LoRA:
 
 
-https://gist.github.com/cmenguy/fd7d42fedb11fac02484e90bf21deb99
+https://gist.github.com/cmenguy/8e2e2e257d663bf5a8d725ad78d876b4
 
 
 
-https://gist.github.com/cmenguy/7beda87422356e47358edc00b1dd2418
+https://gist.github.com/cmenguy/ca03f8f9587e8801b50cfb49deaaad11
 
 
 Only 0.34% of parameters are trainable. Let's inspect what the LoRA matrices look like before training:
 
 
-https://gist.github.com/cmenguy/6bc281ed38a89b630de0bbb90b407d29
+https://gist.github.com/cmenguy/60653498d5376e14961c09ae540e2495
 
 
 
-https://gist.github.com/cmenguy/fb8d4fd42ebed490e58eaadd95eeeba8
+https://gist.github.com/cmenguy/3ea980c46686340c5273becbcb9e9a83
 
 
 Exactly as expected. $A$ is initialized with random values, $B$ is all zeros, so ![equation](https://latex.codecogs.com/png.latex?\inline%20%5CDelta%20W%20%3D%20BA%20%3D%200). The model starts as if no adapter exists.
@@ -209,13 +209,13 @@ Exactly as expected. $A$ is initialized with random values, $B$ is all zeros, so
 Now let's train it on a few examples and see how the matrices change:
 
 
-https://gist.github.com/cmenguy/d25a1b4797fae8387a6bf8299b6531b9
+https://gist.github.com/cmenguy/5a89cc67f77c67e46324e477fcebe51b
 
 
 After training, let's check the matrices again:
 
 
-https://gist.github.com/cmenguy/41ef74d1e1b8760b86a1af41dc3df0e4
+https://gist.github.com/cmenguy/7d9493b7424e43f4945465811dfe3230
 
 
 $B$ is no longer zero. Training has learned a low-rank update. The model's behavior has shifted, but only along 8 independent directions in the weight space.
@@ -233,23 +233,23 @@ Merging is just matrix addition. You take the pretrained weight ![equation](http
 After merging, the model is a regular model again: no adapter, no separate matrices, no extra computation at inference time.
 
 
-https://gist.github.com/cmenguy/9e82b5ba57d7a839ac5bbc7252df0b3e
+https://gist.github.com/cmenguy/d005fcf2da380688ff5841904c50f51c
 
 
 Here's how you do it in code:
 
 
-https://gist.github.com/cmenguy/35dece0358cb3c42d03ed86b81cc260e
+https://gist.github.com/cmenguy/ec3b17b1b46ed49ded42beb549765fa3
 
 
 Let's verify the merge is mathematically correct:
 
 
-https://gist.github.com/cmenguy/57ecd181a892692ef569bd73eb13583d
+https://gist.github.com/cmenguy/cc07a1b577205e5030c8dd5a981f8c10
 
 
 
-https://gist.github.com/cmenguy/d86d83662892149c2472049255c43b61
+https://gist.github.com/cmenguy/cd7c95be3d94f7d8e6a169bce330e618
 
 
 Just matrix addition with scaling. Nothing mysterious.
@@ -261,7 +261,7 @@ If you skip the merge, the LoRA adapter stays separate from the base model. This
 **Inference overhead.** Without merging, every forward pass computes two paths: the base model path and the LoRA path. For a single request, the overhead is small. But at scale, those extra matrix multiplications add up:
 
 
-https://gist.github.com/cmenguy/0d315c41f7fd134e68b78978e446012c
+https://gist.github.com/cmenguy/822e387e340a35c2b668683d51b054e4
 
 
 The exact overhead depends on hardware, but expect 5-15% extra latency on the forward pass. Not catastrophic, but not free.
@@ -269,19 +269,19 @@ The exact overhead depends on hardware, but expect 5-15% extra latency on the fo
 **Multi-adapter serving.** Here's the flip side: not merging is actually a *feature* when you need to serve multiple adapters. If you have one base model and 50 brand-specific LoRA adapters (like the marketing scenario from the previous post), you can:
 
 
-https://gist.github.com/cmenguy/a16979ee34a349ee31ef71eef7b20466
+https://gist.github.com/cmenguy/7b1e428527b9ded023827b17f078c249
 
 
 Each adapter is a few megabytes. The base model is tens of gigabytes. Without merging, you store one base model + N tiny adapters instead of N full model copies. That's the difference between needing 1 GPU and needing 50.
 
 
-https://gist.github.com/cmenguy/1c979eaeb18943125168ee7d4c74faa2
+https://gist.github.com/cmenguy/c856e31047555a77c041e392915a1f42
 
 
 #### 8.3 When to Merge vs. Keep Separate
 
 
-https://gist.github.com/cmenguy/1cdfb4d36896e318526a2cefddacc6f1
+https://gist.github.com/cmenguy/bc93e8f8ad944ab5847ffcbd6a905bfd
 
 
 #### 8.4 The Merge in Detail
@@ -289,7 +289,7 @@ https://gist.github.com/cmenguy/1cdfb4d36896e318526a2cefddacc6f1
 Let's trace exactly what `merge_and_unload` does under the hood. It's simple but worth understanding:
 
 
-https://gist.github.com/cmenguy/871259e16b936f5f2e3227f0d3d98b22
+https://gist.github.com/cmenguy/fc5b674a5d3ca7b7d37f30263eb73c57
 
 
 The merged weight is a regular matrix. No special structure, no adapter overhead. But you lose the ability to "un-merge"; the adapter's contribution is baked into the weights permanently.
@@ -309,7 +309,7 @@ A few things I've learned the hard way that the paper doesn't tell you:
 **Double-check your target modules.** Different model families have different linear layer names. Llama uses `q_proj`, `k_proj`, `v_proj`, `o_proj`. Other models might use `query`, `key`, `value`, or `qkv_proj`. Check with:
 
 
-https://gist.github.com/cmenguy/2a3272058df9748308ef359786db7306
+https://gist.github.com/cmenguy/df6c1d5455baf193082c285b89a1b249
 
 
 ## 10. Wrapping Up

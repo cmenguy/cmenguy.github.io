@@ -19,7 +19,7 @@ The temptation when you're iterating fast is to skip the protocol question entir
 Here's where it breaks down. Say you have Agent A (a planning agent) that needs to delegate a research task to Agent B (a retrieval agent). The naive approach:
 
 
-https://gist.github.com/cmenguy/d498869071d738b2babb124b7d326c3c
+https://gist.github.com/cmenguy/b13c1f04f0cb9dc7d46fa66f8990cf4a
 
 
 This works for request-response. But what happens when the research takes 45 seconds? Or 5 minutes? Now you need timeouts, polling, maybe webhooks. What happens when you want to swap out the retrieval agent for a different one? Now you need discovery. What about auth? What about streaming partial results back so the user isn't staring at a spinner? Each of these is a custom integration, and you end up writing more glue code than actual agent logic.
@@ -37,7 +37,7 @@ They solve fundamentally different problems, and understanding that distinction 
 **A2A** is about agents talking to other agents as peers. Think of it as a phone system for autonomous services: each agent advertises what it can do, and other agents can discover and delegate work to it. The architecture is a mesh: any agent can talk to any other.
 
 
-https://gist.github.com/cmenguy/ce921aabd74b2cd96755ed9af709ab8c
+https://gist.github.com/cmenguy/4a013ad8c1341522ad862b389fa58ddb
 
 
 They're not competing. They're complementary layers. An A2A agent might internally use MCP to access tools. Let me break each one down.
@@ -49,13 +49,13 @@ MCP's mental model is simple: an AI application (the "host") connects to multipl
 **Tools** are functions the model can call. A weather tool, a database query tool, a code execution tool. The model decides when to use them.
 
 
-https://gist.github.com/cmenguy/0174f03f4bfc3bc5f58df32f5f519434
+https://gist.github.com/cmenguy/628c76f67503639e7f522ab7d7841353
 
 
 **Resources** are data the application can pull in for context: files, database records, API responses. Unlike tools, resources are typically application-driven (the UI exposes them for selection) rather than model-driven.
 
 
-https://gist.github.com/cmenguy/81b5b743434424bba2f8ca7dd4cfe0e2
+https://gist.github.com/cmenguy/d7254997ac43d9e922e69a840a8743c5
 
 
 **Prompts** are reusable templates: think slash commands. The user explicitly selects them.
@@ -65,7 +65,7 @@ The transport layer is either **stdio** (for local servers where your MCP server
 Here's what a minimal MCP server looks like in practice:
 
 
-https://gist.github.com/cmenguy/88e3d517057cbe9d8ee5c37eba7cb840
+https://gist.github.com/cmenguy/a82c7cbbacec3ff052ba2861319b3667
 
 
 The key thing about MCP: **it's not agent-to-agent communication**. It's one AI application accessing capabilities. The AI host is the brain; the MCP servers are the hands. There's a clear hierarchy. The host decides what to do, the servers execute.
@@ -81,7 +81,7 @@ A2A starts from a different premise: agents are autonomous entities that need to
 The foundational concept is the **Agent Card**: a JSON document that describes what an agent can do. Think of it as a résumé that other agents can read programmatically.
 
 
-https://gist.github.com/cmenguy/58697457db67be75a3e2a1bf7e0bdd6b
+https://gist.github.com/cmenguy/764ca87a6853204b9ae2a075e97db4fc
 
 
 This is more than a tool definition: it's an agent's identity. The `skills` field tells other agents what tasks this agent can handle, with human-readable examples. The `capabilities` field advertises protocol features (can it stream? does it support push notifications?). The `securitySchemes` field tells clients how to authenticate.
@@ -91,7 +91,7 @@ This is more than a tool definition: it's an agent's identity. The `skills` fiel
 In a complex ecosystem with dozens of agents, discovery matters. Agent Cards are typically hosted at a well-known URL (like `/.well-known/agent.json`), and client agents can fetch them to understand what's available. In enterprise settings, you might have an agent registry: a directory service that indexes Agent Cards across your organization.
 
 
-https://gist.github.com/cmenguy/1d323b7bcc573339c9620976acf5ce5a
+https://gist.github.com/cmenguy/806a0ce321a085cbefdbdee74666f769
 
 
 #### 4.2 The Task Lifecycle
@@ -99,13 +99,13 @@ https://gist.github.com/cmenguy/1d323b7bcc573339c9620976acf5ce5a
 Where A2A really separates itself from "just make an API call" is its task model. When Agent A sends a message to Agent B, the interaction is wrapped in a **Task** that progresses through well-defined states:
 
 
-https://gist.github.com/cmenguy/26f933804fa7600fe436dbf13da621dd
+https://gist.github.com/cmenguy/4167535fe17d36e61182742d71a8bf04
 
 
 This matters because real agent work isn't always instant. A research agent might need minutes. A code generation agent might need to iterate. A data pipeline agent might need hours. The task model gives you a shared vocabulary for "what's happening right now" and "what happened."
 
 
-https://gist.github.com/cmenguy/f9b1eb2f7220fdd3bec7955b527a86cf
+https://gist.github.com/cmenguy/bb5ea0a56f3dba6dcde02b5ccb1bd5c4
 
 
 #### 4.3 Short-Lived vs Long-Running Tasks
@@ -115,19 +115,19 @@ A2A handles the temporal spectrum gracefully through three execution patterns:
 **Immediate (synchronous):** For quick operations, set `blocking: True` and get a response directly. The agent processes the request and returns a completed task or message in the same HTTP response.
 
 
-https://gist.github.com/cmenguy/ad13da8f7c4c6df382109b17f090df8f
+https://gist.github.com/cmenguy/45dfcf5f57508d85e37f30a590499c58
 
 
 **Streaming (Server-Sent Events):** For tasks with incremental output, use `SendStreamingMessage`. You get a stream of events: `TaskStatusUpdateEvent` for state changes, `TaskArtifactUpdateEvent` for partial results.
 
 
-https://gist.github.com/cmenguy/06d9a00c829fe5b039d33a5546a597f3
+https://gist.github.com/cmenguy/764fe745d5c0af1612fb9a1cbfed4e7c
 
 
 **Polling / Push (asynchronous):** For long-running work, send the message with `blocking: False`, get back a task ID, and either poll with `GetTask` or set up a webhook for push notifications.
 
 
-https://gist.github.com/cmenguy/88b191e709e4edd24f8ace3fc594081e
+https://gist.github.com/cmenguy/80e254ff68ddf8cceca6e1b3e1e6069f
 
 
 This three-tier approach is what makes A2A practical for production systems. A simple lookup agent responds in milliseconds (synchronous). A summarization agent streams tokens as it generates (streaming). A data pipeline agent takes 20 minutes and pushes a notification when it's done (async with webhooks).
@@ -137,7 +137,7 @@ This three-tier approach is what makes A2A practical for production systems. A s
 A2A has an extension mechanism for capabilities beyond the core spec. Agents declare supported extensions in their Agent Card, and clients signal which extensions they want to activate per-request.
 
 
-https://gist.github.com/cmenguy/da69cdd485d376aa5ab7efdce8b59666
+https://gist.github.com/cmenguy/9767586699a9140d4ec6c96271e8acfc
 
 
 This is how you get domain-specific behavior without bloating the core protocol. A financial services agent might support a compliance extension. A healthcare agent might support a HIPAA audit trail extension. The core protocol stays lean.
@@ -151,7 +151,7 @@ A2A doesn't lock you into one transport. The spec defines three protocol binding
 - **HTTP+JSON (REST):** For teams that just want RESTful endpoints and don't want to think about JSON-RPC.
 
 
-https://gist.github.com/cmenguy/f18f05c536a19887f1eae1979d79b934
+https://gist.github.com/cmenguy/3505d52688f7f9058b99cbdfddc3df1d
 
 
 The protobuf definitions are the normative source of truth, with JSON Schema auto-generated for broader compatibility. In practice, most teams I've talked to are using the JSON-RPC binding: it's the path of least resistance.
@@ -161,7 +161,7 @@ The protobuf definitions are the normative source of truth, with JSON Schema aut
 Here's my honest breakdown of when to reach for which:
 
 
-https://gist.github.com/cmenguy/875cdf175be94e029ef3ccdcc5b42a3d
+https://gist.github.com/cmenguy/9ccfbe38f5a72d47395e1349085b007d
 
 
 **Use MCP when** you're building one AI application that needs to access external tools and data. If you're building a coding assistant that needs filesystem access, database queries, and API calls: MCP.
@@ -171,7 +171,7 @@ https://gist.github.com/cmenguy/875cdf175be94e029ef3ccdcc5b42a3d
 **Use both when** your agents need to coordinate with each other *and* each agent needs access to tools. The A2A agent uses A2A to talk to peer agents and MCP to access its own tools.
 
 
-https://gist.github.com/cmenguy/b87d1178f3e5d66eef67bdf87ad621cd
+https://gist.github.com/cmenguy/f0e1eb9366d09fae618d350ddf8101a5
 
 
 ## 6. The Honest Take: Complexity vs Speed
@@ -183,7 +183,7 @@ Here's where I stop being an impartial protocol explainer and start being an eng
 **The context fragmentation problem.** When you split work across agents, you split context. Agent A knows the user's intent. Agent B knows what it found during research. Agent C knows what happened during execution. But no single agent has the full picture. When something goes wrong (and it will), debugging requires reconstructing context across multiple systems. I've spent more time building tracing and logging infrastructure for multi-agent systems than building the actual agents.
 
 
-https://gist.github.com/cmenguy/b3e0721b9043d635d081e0f1666db0e5
+https://gist.github.com/cmenguy/519d9430a2d646ae61fc20a8373da712
 
 
 **The feedback loop problem.** Good agents learn from their mistakes within a session. They try something, see it fail, adjust. When you split an agent into multiple agents, each sub-agent optimizes locally. The research agent finds great sources but doesn't know they're irrelevant to the execution step. The execution agent does its best with what it got. The planning agent never finds out that its plan was subtly wrong because the error manifests two agents downstream.
@@ -207,7 +207,7 @@ This brings me to something I've been thinking about a lot lately. The industry 
 **Multi-agent (A2A)**: genuinely separate agents coordinating over a protocol. Each has its own context, its own model, potentially its own infrastructure.
 
 
-https://gist.github.com/cmenguy/709f77240587eb4d15503b0e600dbc8b
+https://gist.github.com/cmenguy/dd869073ccdebc4af2309194e8e5e64d
 
 
 The "single agent with skills" pattern is the one I'm most excited about. You get the specialization benefits of multi-agent without the context fragmentation. The agent routes to the right skill based on the task, the skill has focused instructions and tools, but everything stays in one context window. When the skill needs to reference something from earlier in the conversation, it can, because the context is right there.
@@ -219,13 +219,13 @@ I'll be writing a deep dive on the skills pattern in an upcoming post, because I
 Let me sketch out a concrete architecture that uses both protocols. Say you're building a customer support system. Here's how the pieces fit:
 
 
-https://gist.github.com/cmenguy/eee9b90808d06016698c6811e74ba765
+https://gist.github.com/cmenguy/c8bfcf59925bc8c24cae3ec111fc7a05
 
 
 The support agent uses MCP to look up customer info, check ticket history, and search the knowledge base. When it determines the issue needs specialized handling (a billing dispute, a complex technical problem), it delegates to a specialized A2A agent.
 
 
-https://gist.github.com/cmenguy/aa66545e254e16a23ea91a5b67f5fd82
+https://gist.github.com/cmenguy/0ab623e7dcfdee282672f7bf54370d19
 
 
 This is the pattern I keep coming back to: MCP for tools, A2A for delegation. Most requests get handled by the primary agent with its MCP tools. The expensive A2A delegation only happens when truly needed.

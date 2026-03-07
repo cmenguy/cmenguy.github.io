@@ -31,13 +31,13 @@ FIM was introduced in the [Bavarian et al. 2022](https://arxiv.org/abs/2207.1425
 Here's how a normal training example looks:
 
 
-https://gist.github.com/cmenguy/a13b5a06533d6eb1486fd80d1a8533fe
+https://gist.github.com/cmenguy/5f07de38a0b2ec368ef9239c9ebcf3ab
 
 
 And here's the same example reformatted for FIM training:
 
 
-https://gist.github.com/cmenguy/cd7aa551c0df0b297926a8358a257aca
+https://gist.github.com/cmenguy/2a634b63cba1de9896dbc04d4442bbce
 
 
 The model learns to take the prefix (everything before the cursor) and the suffix (everything after), and generate the middle (what should go where the cursor is). Three special tokens mark the boundaries: `<fim_prefix>`, `<fim_suffix>`, and `<fim_middle>`.
@@ -71,7 +71,7 @@ For this post, I'm using [bigcode/tiny_starcoder_py](https://huggingface.co/bigc
 For production work, you'd use something bigger: StarCoder2-15B, DeepSeek-Coder-33B, or CodeLlama-34B. The pipeline we're building is identical regardless of model size.
 
 
-https://gist.github.com/cmenguy/6dec20daf49ab61daf386964fd19f38f
+https://gist.github.com/cmenguy/e9d969d48aa6f6917ed597c3a80eba8e
 
 
 #### 2.2 FIM Inference
@@ -79,7 +79,7 @@ https://gist.github.com/cmenguy/6dec20daf49ab61daf386964fd19f38f
 Here's the core function: given a prefix and suffix (the code before and after the cursor), generate the missing middle.
 
 
-https://gist.github.com/cmenguy/f7a3906229b5e3ae3b8447f61adcb544
+https://gist.github.com/cmenguy/459f69a11a31621c3cb7792ce6d9f191
 
 
 Low temperature (0.2) makes completions more deterministic, which is what you want for code. You're not looking for creativity; you're looking for the most likely correct code. `top_p=0.95` with nucleus sampling filters out very unlikely tokens.
@@ -87,7 +87,7 @@ Low temperature (0.2) makes completions more deterministic, which is what you wa
 Let's test it:
 
 
-https://gist.github.com/cmenguy/f46bb9de6897e721174a86eec40a7701
+https://gist.github.com/cmenguy/f59882fd414c6d57ea63771b22b16174
 
 
 The model should generate something like `if arr[mid] == target:\n            return mid`, which is the missing condition in a binary search. It sees the `elif` below and understands the branching structure.
@@ -97,11 +97,11 @@ The model should generate something like `if arr[mid] == target:\n            re
 FIM is for when there's code on both sides of the cursor. When the cursor is at the end of the file (or end of a function), regular left-to-right completion works:
 
 
-https://gist.github.com/cmenguy/a4312183fbbb8d7da4b5560feed5bb22
+https://gist.github.com/cmenguy/ee37522571a01a436da7b477842ea19d
 
 
 
-https://gist.github.com/cmenguy/75ac60d83127ce1ee7fe88b7c65bb053
+https://gist.github.com/cmenguy/0659d52675b98b115c30b2b989dfd6cd
 
 
 This should produce something reasonable: open the file, load the JSON, return the result. The docstring gives the model a clear signal about what the function should do.
@@ -111,11 +111,11 @@ This should produce something reasonable: open the file, load the JSON, return t
 A real Copilot integration triggers on keystrokes, debounces requests, and sends completions back to the editor via LSP (Language Server Protocol) or a proprietary protocol. Here's a simplified version that simulates the decision logic:
 
 
-https://gist.github.com/cmenguy/98269c675db730419da9f8d7e5cb1ec1
+https://gist.github.com/cmenguy/25a2400406db8478d2d30e4650b16623
 
 
 
-https://gist.github.com/cmenguy/512906b1ef86eab84a32d85ba51cc484
+https://gist.github.com/cmenguy/9e536b07027130b34d97b054be7e8080
 
 
 The function detects there's code below (`get_history` method) and uses FIM. It should fill in the `subtract` body in a way that's consistent with the `add` pattern above it, something like `result = a - b` followed by the history append.
@@ -125,17 +125,17 @@ The function detects there's code below (`get_history` method) and uses FIM. It 
 The completion engine above is the brains, but it needs a body. In the real world, Copilot talks to your editor through a server. Let's build a minimal HTTP server that acts like a code completion API. Any editor with an HTTP-capable plugin can talk to this.
 
 
-https://gist.github.com/cmenguy/1824af07f7d2fc87e263f7c129fea85f
+https://gist.github.com/cmenguy/d2dc28d9f6c7bf1d32fba4c8b278ffee
 
 
 
-https://gist.github.com/cmenguy/5b1e013d8311d5049418a12ab2c9df64
+https://gist.github.com/cmenguy/904537d66440b76e870067c39cd7b01e
 
 
 Test it with curl:
 
 
-https://gist.github.com/cmenguy/2de666d2c10dc4b7260dc59ce1477420
+https://gist.github.com/cmenguy/fc2a826456ab713a46e47fdb7d7e1ba6
 
 
 That's it. You now have a code completion server running locally. In production, you'd add request batching (queue up multiple keystrokes and only process the latest), caching (if the prefix hasn't changed, return the cached completion), and streaming (send tokens as they're generated rather than waiting for the full completion).
@@ -155,11 +155,11 @@ The biggest gap between our toy and production is context. We only use the curre
 **Repository-level retrieval.** Some tools (Sourcegraph Cody, Continue) use embedding-based search to find the most relevant code snippets across the entire repo and inject them into the prompt.
 
 
-https://gist.github.com/cmenguy/1ffea440a1d546a3e96ab0a07964dffe
+https://gist.github.com/cmenguy/3c6927c1de34c08f5bbe221b3b48ac52
 
 
 
-https://gist.github.com/cmenguy/636a7fc56ded01be0ffce7dff389e092
+https://gist.github.com/cmenguy/1f6d9de5fee8f94b9b74ccbc1d69d98e
 
 
 #### 4.2 Post-Processing
@@ -167,7 +167,7 @@ https://gist.github.com/cmenguy/636a7fc56ded01be0ffce7dff389e092
 Raw model output often needs cleanup before showing it to the user:
 
 
-https://gist.github.com/cmenguy/7428e172f8aa98cee5a566a155581bca
+https://gist.github.com/cmenguy/c73bf643444cfbf09fa8dd81cb1fac7d
 
 
 This handles three common issues: stopping the completion before it starts generating a new function (the model doesn't know where to stop), fixing indentation to match the surrounding code, and deduplicating against code that already exists below the cursor.
@@ -177,7 +177,7 @@ This handles three common issues: stopping the completion before it starts gener
 Here's the latency breakdown for a production code completion:
 
 
-https://gist.github.com/cmenguy/0b60f38b535e7a662ce37168b15ad05c
+https://gist.github.com/cmenguy/1bd576e41120bc7016477d9d3a810cee
 
 
 The debounce is the most important optimization. You don't fire the model on every keystroke. You wait for the user to pause, then trigger. If they start typing again before the completion arrives, you cancel it and wait for the next pause.
@@ -203,7 +203,7 @@ For most teams, RAG gets you 70% of the way. Fine-tuning with LoRA gets you to 9
 Here's a quick comparison:
 
 
-https://gist.github.com/cmenguy/38afc9890f59cb0e97509b5ee5c69d33
+https://gist.github.com/cmenguy/269f75ca6e5f293d570e1abb64035c74
 
 
 #### 5.2 Preparing Training Data
@@ -211,11 +211,11 @@ https://gist.github.com/cmenguy/38afc9890f59cb0e97509b5ee5c69d33
 This is where most people make mistakes. The quality of your training data determines the quality of your fine-tuned model. Let's build the data preparation pipeline.
 
 
-https://gist.github.com/cmenguy/d0d2a3fe550a114a9a2322a4b9aa6316
+https://gist.github.com/cmenguy/d2487c234a5f4c26f35a5b8a1cfb9789
 
 
 
-https://gist.github.com/cmenguy/1b775970b73b438fa5c5629c0c33179f
+https://gist.github.com/cmenguy/b14de78d8cedf451c382b25f18d7a729
 
 
 #### 5.3 Creating FIM Training Examples
@@ -223,11 +223,11 @@ https://gist.github.com/cmenguy/1b775970b73b438fa5c5629c0c33179f
 For fine-tuning a code completion model, you want FIM-formatted examples. Each example takes a file, picks a random split point, and creates a prefix-suffix-middle triple.
 
 
-https://gist.github.com/cmenguy/bc5ca483224e69e0f50446264efbcffa
+https://gist.github.com/cmenguy/e947a650c9d44e15daa4a5236aa39db7
 
 
 
-https://gist.github.com/cmenguy/c230d6a854d5c7f3b9e41e3728ad583a
+https://gist.github.com/cmenguy/3addf171ee9c0653f7b24067dcac5197
 
 
 For a medium-sized repo (500 Python files), this generates roughly 1500 training examples. That's plenty for LoRA fine-tuning.
@@ -237,7 +237,7 @@ For a medium-sized repo (500 Python files), this generates roughly 1500 training
 If you read the [LoRA post](https://ai-terminal.net/llm/fine-tuning/2025/12/28/lora-deep-dive/), you know the mechanics. Here's the application to code completion. We're using `peft` and `trl` to keep it concise, but the underlying math is the same.
 
 
-https://gist.github.com/cmenguy/ecef204a594785ef7e5f7734ab730ef7
+https://gist.github.com/cmenguy/756368dcf24ef3ee52a0fcbf6c702362
 
 
 This should print something like: `trainable params: 3,481,600 || all params: 167,625,728 || trainable%: 2.08%`. About 2% of the parameters, trained on your code. On a larger model like StarCoder2-15B, that percentage drops below 0.5%.
@@ -245,11 +245,11 @@ This should print something like: `trainable params: 3,481,600 || all params: 16
 Why these target modules? In the StarCoder architecture, `c_attn` handles the query/key/value projections (this is where the model learns *what to attend to* in your code), `c_proj` is the attention output (how it combines attended information), and `c_fc` is the MLP (where pattern recognition happens). Targeting these three catches the most important weights for learning code patterns without touching the embedding layers.
 
 
-https://gist.github.com/cmenguy/ca7166d903ba8d3ce6fbf55e687efdf7
+https://gist.github.com/cmenguy/710d2268c35d9651f446f1abcea00dc9
 
 
 
-https://gist.github.com/cmenguy/0f98b52e959c321a2922843277ff10e0
+https://gist.github.com/cmenguy/2ad0d05a7db8738331ca1c7a63242dac
 
 
 A few things about the hyperparameters. Learning rate `2e-4` is standard for LoRA fine-tuning. Much higher and you'll overfit fast; much lower and three epochs won't be enough. Cosine scheduler with warmup is the safest default. Batch size 4 with gradient accumulation 4 gives an effective batch size of 16. For code completion, you want small effective batch sizes because each example is fairly long (a full file context).
@@ -259,7 +259,7 @@ A few things about the hyperparameters. Learning rate `2e-4` is standard for LoR
 After training, your LoRA adapter weights are saved separately from the base model. Loading them is straightforward:
 
 
-https://gist.github.com/cmenguy/7869fe8d4b34a70f018c28484a899c05
+https://gist.github.com/cmenguy/050a652a8f9847a66ae6af8894cf9e0a
 
 
 The `merge_and_unload()` call is important for production. During training, LoRA adds a side path to each targeted layer: the output is `base_output + lora_output`. At inference time, you can merge the LoRA weights directly into the base weights (![equation](https://latex.codecogs.com/png.latex?\inline%20W%20%3D%20W_0%20%2B%20BA)) and run the model as if it were never LoRA-trained. Same quality, zero overhead.
@@ -277,7 +277,7 @@ The better approach: **train a separate LoRA adapter per repo** (or per team, or
 Here's what that looks like in practice:
 
 
-https://gist.github.com/cmenguy/e6ee680d7d2a0ea9a3ff36feb44dbb37
+https://gist.github.com/cmenguy/cc216646016d7be78b60929e69e9071f
 
 
 At serving time, you detect which repo the user is in (from their editor workspace, git remote, or an explicit config) and load the matching adapter. The base model stays in memory; you're just swapping a small set of low-rank matrices on top.
@@ -287,7 +287,7 @@ The question of **merge vs. keep separate** depends on your serving setup:
 **Keep adapters separate** when you need to switch between repos during a session. PEFT supports loading multiple adapters onto the same base model and switching between them at inference time with zero reloading:
 
 
-https://gist.github.com/cmenguy/539885245862a93de5d919e3a5a57634
+https://gist.github.com/cmenguy/4175f930f6f947c4d9da6566e8b06c7c
 
 
 The switching is near-instant because all adapters are already in memory. The memory overhead is small: each adapter adds about 2% to the base model's footprint with our config. Three adapters means ~6% extra memory, which is negligible.
@@ -295,13 +295,13 @@ The switching is near-instant because all adapters are already in memory. The me
 **Merge into the base weights** when you're deploying a dedicated instance per team or per repo. Merging eliminates the LoRA forward pass overhead (the extra matrix multiplications through B and A), which saves a few milliseconds of latency per completion. If the data engineering team has their own completion server, merge their adapter and serve a single clean model.
 
 
-https://gist.github.com/cmenguy/585e41faf4276ef605e39985608d74fd
+https://gist.github.com/cmenguy/d3fd5eb56fc0ec3286e7e2b994c6e243
 
 
 There's a third option that I haven't tried in production but is worth knowing about: **adapter merging**. You can combine multiple LoRA adapters into one by weighted averaging their B and A matrices. This is useful if you want a single adapter that captures patterns from, say, three closely related repos:
 
 
-https://gist.github.com/cmenguy/af4aeab8b0b71546118c9a75500cafb7
+https://gist.github.com/cmenguy/ebf505a003cb7e7fee7574c7559b5c60
 
 
 The weights control how much each repo's patterns contribute. If the data engineering repo is the primary codebase and the ML repo shares some common utilities, a 70/30 split makes sense. The `density` parameter in TIES-Merging controls sparsity: at 0.5, it keeps only the top 50% of adapter parameters by magnitude, which reduces interference between the two adapters.
@@ -311,7 +311,7 @@ In my experience, the cleanest setup for most companies is: **separate adapters,
 Here's the decision tree I've landed on:
 
 
-https://gist.github.com/cmenguy/95d11e4eb806017f32e5e54e4349c3ee
+https://gist.github.com/cmenguy/009c5c87186174c4e71ce532cb8f0c4d
 
 
 ## 6. Evaluation: How Do You Know It's Working?
@@ -323,11 +323,11 @@ Fine-tuning without evaluation is guesswork. Here's how to measure whether your 
 The simplest test: hold out 10-20% of your repo's files, then measure how well the model completes code from those files.
 
 
-https://gist.github.com/cmenguy/1f83f49c9aa216bcfa05e1834723ba78
+https://gist.github.com/cmenguy/0159cf1de448c822b133f8ae0e68c3c5
 
 
 
-https://gist.github.com/cmenguy/6ad01d9a2986da09037d7e212d8b7c8b
+https://gist.github.com/cmenguy/4afa94679be53de56ecf368d56f705e0
 
 
 Exact match rates for single-line completion on a fine-tuned model typically land between 25-40% for internal codebases. That sounds low until you consider that there are often multiple valid ways to write a line of code. Edit distance is a better proxy: a fine-tuned model should average 3-5 characters of edit distance where a base model averages 15-20.
@@ -337,7 +337,7 @@ Exact match rates for single-line completion on a fine-tuned model typically lan
 Numbers are useful, but the most telling evaluation is qualitative. Take 10 examples from your codebase and compare the base model's completion against the fine-tuned model's:
 
 
-https://gist.github.com/cmenguy/88304b374a807326cf5206a4b25d120e
+https://gist.github.com/cmenguy/b0da2b82814089d178a24d79fdc6ade8
 
 
 What you're looking for: does the fine-tuned model use your internal function names? Does it follow your naming conventions (snake_case vs camelCase)? Does it import from your internal modules instead of suggesting `import pandas as pd` for everything? These qualitative differences are often more valuable than the quantitative metrics.
@@ -399,7 +399,7 @@ The Copilot pipeline we built here is for **inline code completion**: short, fas
 But the fine-tuning pipeline is almost identical. The difference is in the training data format:
 
 
-https://gist.github.com/cmenguy/739ef1a83f67847ce19f1c8325239929
+https://gist.github.com/cmenguy/c1c230a04e90440eaa1abcbc3644555c
 
 
 Same base model, same LoRA setup, different data format. For the NL2Code agent, I swapped FIM examples for instruction/response pairs extracted from our codebase (using docstrings and function signatures as the "instruction" and the function body as the "response"). The fine-tuning loop didn't change at all.

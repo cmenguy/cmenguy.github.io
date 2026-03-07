@@ -12,14 +12,14 @@
 <p>The formula:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Ctext%7BAttention%7D%28Q%2C%20K%2C%20V%29%20%3D%20%5Ctext%7Bsoftmax%7D%5Cleft%28%5Cfrac%7BQK%5ET%7D%7B%5Csqrt%7Bd_k%7D%7D%5Cright%29V" /></p>
 <p>Let's break this into steps. Say we have a sequence of 4 tokens, each with embedding dimension 8. Q, K, and V are all shape (4, 8).</p>
-<script src="https://gist.github.com/cmenguy/4cbf19f6dc4128a2f20dace78d257d5b.js"></script>
+<div><a href="https://gist.github.com/cmenguy/c4bdbd1158edbc96fda10c4e34cb80ae">https://gist.github.com/cmenguy/c4bdbd1158edbc96fda10c4e34cb80ae</a></div>
 <p>The output has the same shape as the input. Each position gets a new representation that's a weighted mix of all the value vectors, with weights determined by query-key similarity.</p>
 <p>Here's the implementation in PyTorch:</p>
-<script src="https://gist.github.com/cmenguy/0424e08d165d6c7ff451e1cad03d2857.js"></script>
+<div><a href="https://gist.github.com/cmenguy/719a0ae5bc4257293b9da4b11ee85a8e">https://gist.github.com/cmenguy/719a0ae5bc4257293b9da4b11ee85a8e</a></div>
 <p>And a pure Python version that mirrors what microgpt.py does, without any libraries:</p>
-<script src="https://gist.github.com/cmenguy/567f7910ae1eab87ad6c4e3b0b34af87.js"></script>
+<div><a href="https://gist.github.com/cmenguy/a5d1c70d7769606559af58edc63a1cf6">https://gist.github.com/cmenguy/a5d1c70d7769606559af58edc63a1cf6</a></div>
 <p>Let's verify they produce the same result:</p>
-<script src="https://gist.github.com/cmenguy/5ce1a5683b9bf61d5e533ff5035f265f.js"></script>
+<div><a href="https://gist.github.com/cmenguy/3ce7fc89a19506f483e59b47909b6e7b">https://gist.github.com/cmenguy/3ce7fc89a19506f483e59b47909b6e7b</a></div>
 <p>Same result, give or take floating point precision. The PyTorch version runs ~1000x faster on GPU because it's one batched matrix multiply instead of nested Python loops.</p>
 <p><strong>Why the <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Csqrt%7Bd_k%7D" /> scaling?</strong> Without it, dot products grow proportionally to <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_k" />. If your keys and queries have entries with zero mean and unit variance, the expected value of each dot product is 0, but the variance is <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_k" />. For <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_k%20%3D%2064" /> (common in practice), that means scores can easily be in the range [-20, 20], which pushes softmax into near-one-hot territory where gradients vanish. Dividing by <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Csqrt%7Bd_k%7D" /> brings the variance back to 1.</p>
 <p><strong>When is this used?</strong> This exact formulation appears inside every transformer, but never alone. It's always wrapped in multi-head attention (next section). The standalone version is mostly useful for teaching and debugging.</p>
@@ -29,29 +29,29 @@
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Ctext%7BMultiHead%7D%28Q%2C%20K%2C%20V%29%20%3D%20%5Ctext%7BConcat%7D%28%5Ctext%7Bhead%7D_1%2C%20%5Cdots%2C%20%5Ctext%7Bhead%7D_h%29W%5EO" /></p>
 <p>where <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Ctext%7Bhead%7D_i%20%3D%20%5Ctext%7BAttention%7D%28QW_i%5EQ%2C%20KW_i%5EK%2C%20VW_i%5EV%29" /></p>
 <p>Visually, here's what happens for 4 heads with <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_%7Bmodel%7D%20%3D%2016" /> and <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_k%20%3D%204" /> per head:</p>
-<script src="https://gist.github.com/cmenguy/ffbed2bc3c50930c274eec23fbd55842.js"></script>
+<div><a href="https://gist.github.com/cmenguy/45e7317c45dd0a33f8be49b1799c265b">https://gist.github.com/cmenguy/45e7317c45dd0a33f8be49b1799c265b</a></div>
 <p>Each head operates in a smaller subspace (<img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_k%20%3D%20d_%7Bmodel%7D%20%2F%20h" />), so the total computation cost is the same as a single full-dimension attention.</p>
 <p>In microgpt.py, this was the loop over heads with slice indexing:</p>
-<script src="https://gist.github.com/cmenguy/91bd816f8a8a6e213850daf0338487f3.js"></script>
+<div><a href="https://gist.github.com/cmenguy/fa6a0ff12b6535a808007d8950d15b6b">https://gist.github.com/cmenguy/fa6a0ff12b6535a808007d8950d15b6b</a></div>
 <p>In practice, the projections are done as a single matrix multiply and then reshaped. Here's a clean PyTorch implementation:</p>
-<script src="https://gist.github.com/cmenguy/62db27533375980b0bb2002ac7a6e8fa.js"></script>
+<div><a href="https://gist.github.com/cmenguy/bd4577196b4ee1bcf8cddcc0dbae39c9">https://gist.github.com/cmenguy/bd4577196b4ee1bcf8cddcc0dbae39c9</a></div>
 <p>The key insight: the <code>view</code> and <code>transpose</code> operations are free (just pointer math, no data movement). A single <code>nn.Linear(d_model, d_model)</code> produces all head projections at once, and the reshape splits them into heads. This is how every production transformer does it.</p>
 <p>Let's verify it works:</p>
-<script src="https://gist.github.com/cmenguy/0dd29f5aaf32fb6b15139defd9af6643.js"></script>
+<div><a href="https://gist.github.com/cmenguy/c7f3ecdd6ab32ba3cd59982f34de0048">https://gist.github.com/cmenguy/c7f3ecdd6ab32ba3cd59982f34de0048</a></div>
 <p><strong>What do different heads learn?</strong> Research shows that heads tend to specialize. In trained models, some heads attend to the previous token, some to syntactic structures (subject-verb pairs), others to positional patterns. Removing certain heads barely affects performance; removing others is catastrophic. This emergent specialization is why multi-head works better than single-head despite using the same total compute.</p>
 <p><strong>When is this used?</strong> Every transformer model since 2017. This is the standard. The variants that follow are all modifications of this core structure.</p>
 <h2>3. Causal (Masked) Attention: No Peeking</h2>
 <p>In language models, a token at position $i$ should only attend to tokens at positions <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cleq%20i" />. You can't let the model see future tokens during training, or it'll just copy the answer instead of learning to predict.</p>
 <p>The fix is a causal mask: set the upper-right triangle of the attention score matrix to <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20-%5Cinfty" /> before softmax. Since <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20e%5E%7B-%5Cinfty%7D%20%3D%200" />, those positions get zero weight.</p>
-<script src="https://gist.github.com/cmenguy/c6a39bc2fd61c5470d813fc5f0c53576.js"></script>
+<div><a href="https://gist.github.com/cmenguy/2a3cfbc6d6df92914314b53e6b0c318d">https://gist.github.com/cmenguy/2a3cfbc6d6df92914314b53e6b0c318d</a></div>
 <p>The math is the same as before, with a mask added:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Ctext%7BCausalAttention%7D%28Q%2C%20K%2C%20V%29%20%3D%20%5Ctext%7Bsoftmax%7D%5Cleft%28%5Cfrac%7BQK%5ET%7D%7B%5Csqrt%7Bd_k%7D%7D%20%2B%20M%5Cright%29V" /></p>
 <p>where <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20M_%7Bij%7D%20%3D%200" /> if <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20i%20%5Cgeq%20j" /> (allowed), and <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20M_%7Bij%7D%20%3D%20-%5Cinfty" /> if $i &lt; j$ (blocked).</p>
 <p>The implementation is just adding the mask to our existing code:</p>
-<script src="https://gist.github.com/cmenguy/bd8f56d12dc64e3facee620097f3957a.js"></script>
+<div><a href="https://gist.github.com/cmenguy/5b50b3bd4102080a1ad373eaa5388043">https://gist.github.com/cmenguy/5b50b3bd4102080a1ad373eaa5388043</a></div>
 <p>Let's see the mask in action:</p>
-<script src="https://gist.github.com/cmenguy/02a293f875962eb9fda695e5192ed206.js"></script>
-<script src="https://gist.github.com/cmenguy/6dd90691e6673707683c330b8a23c2ec.js"></script>
+<div><a href="https://gist.github.com/cmenguy/f397b613b0b6446741d2017a45a3f264">https://gist.github.com/cmenguy/f397b613b0b6446741d2017a45a3f264</a></div>
+<div><a href="https://gist.github.com/cmenguy/54dc2c837e2b45dd0578bcf5b73f2de9">https://gist.github.com/cmenguy/54dc2c837e2b45dd0578bcf5b73f2de9</a></div>
 <p>Row 0 puts all weight on position 0 (only option). Row 1 heavily favors position 1 (0.941) over position 0 (0.059). By row 3, the weights spread across all four positions, with position 3 getting the largest share. The upper triangle is all zeros.</p>
 <p>In microgpt.py, causal masking was implicit. Because it processed one token at a time and only stored past keys/values in the KV cache, the model could never attend to future positions. The explicit mask approach is what you use during training, when the full sequence is processed in parallel.</p>
 <p><strong>When is this used?</strong> Every autoregressive language model (GPT, Llama, Claude, Mistral, Gemini). If it generates text left-to-right, it uses causal masking.</p>
@@ -59,76 +59,76 @@
 <p>The original transformer was built for translation. You have an input sentence in French and want to produce output in English. The encoder processes the French input; the decoder generates the English output. Cross-attention is how the decoder "looks at" the encoder's representation.</p>
 <p>The math is identical to self-attention, except Q comes from the decoder and K, V come from the encoder:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Ctext%7BCrossAttention%7D%20%3D%20%5Ctext%7Bsoftmax%7D%5Cleft%28%5Cfrac%7BQ_%7Bdec%7D%20K_%7Benc%7D%5ET%7D%7B%5Csqrt%7Bd_k%7D%7D%5Cright%29%20V_%7Benc%7D" /></p>
-<script src="https://gist.github.com/cmenguy/1880589204b930edc761de5099055497.js"></script>
+<div><a href="https://gist.github.com/cmenguy/895cfb7fc6f5bf31b411f0ad24c4601f">https://gist.github.com/cmenguy/895cfb7fc6f5bf31b411f0ad24c4601f</a></div>
 <p>Here's the implementation. It's the same <code>MultiHeadAttention</code> class, but called with different inputs for Q vs. K/V:</p>
-<script src="https://gist.github.com/cmenguy/fd19943fd8d1f51d696c76a02f8df4c4.js"></script>
-<script src="https://gist.github.com/cmenguy/82012dcc6b01acf64542cb9574707610.js"></script>
+<div><a href="https://gist.github.com/cmenguy/b475352d2609119491a7301a2bba0cfc">https://gist.github.com/cmenguy/b475352d2609119491a7301a2bba0cfc</a></div>
+<div><a href="https://gist.github.com/cmenguy/f7b8350430867d270ba1fea89f4b6933">https://gist.github.com/cmenguy/f7b8350430867d270ba1fea89f4b6933</a></div>
 <p>Notice there's no causal mask here. Each decoder position should be able to attend to any encoder position. The word "monde" might be most relevant for generating "world" regardless of position.</p>
 <p><strong>When is this used?</strong> Encoder-decoder models: the original Transformer, T5, BART, Whisper (speech-to-text), and vision-language models where the "encoder" is an image encoder and the "decoder" generates text. GPT-style decoder-only models don't use cross-attention at all. They threw out the encoder and replaced cross-attention with just longer context windows.</p>
 <h2>5. Multi-Query Attention: One KV Head for All</h2>
 <p>Here's where we move from the 2017 paper to modern efficiency optimizations. Multi-Query Attention (MQA), introduced by <a href="https://arxiv.org/abs/1911.02150">Shazeer (2019)</a>, makes a simple but effective change: instead of giving each head its own K and V projections, share a single K and single V across all heads. Each head still gets its own Q.</p>
-<script src="https://gist.github.com/cmenguy/92c610842f984f3726a6f3566be8fb95.js"></script>
+<div><a href="https://gist.github.com/cmenguy/893c644f6ffc24f07cf61ba114d35888">https://gist.github.com/cmenguy/893c644f6ffc24f07cf61ba114d35888</a></div>
 <p>Why does this matter? The KV cache. During inference, you store one K and one V vector per token per layer. With 32 layers and 32 heads at <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_k%20%3D%20128" />, that's $32 \times 32 \times 128 \times 2 = 262{,}144$ floats per token. For a 100k context, that's ~100GB in float32. MQA cuts the KV cache by the number of heads (32x in this case), bringing it down to ~3GB.</p>
-<script src="https://gist.github.com/cmenguy/7820331b78d5f4323a88d7a538c20e4c.js"></script>
+<div><a href="https://gist.github.com/cmenguy/3d6e0d624486e44ff23c8b184a3dc566">https://gist.github.com/cmenguy/3d6e0d624486e44ff23c8b184a3dc566</a></div>
 <p>The K and V tensors have shape <code>(B, 1, T, d_k)</code> and PyTorch broadcasts them across all <code>n_heads</code> during the matrix multiplications. No data duplication, just pointer tricks.</p>
-<script src="https://gist.github.com/cmenguy/2757231b0efd269798da3cda4965c604.js"></script>
+<div><a href="https://gist.github.com/cmenguy/1fb584e45e0dabf4fc49b592efe9938e">https://gist.github.com/cmenguy/1fb584e45e0dabf4fc49b592efe9938e</a></div>
 <p>The trade-off: some quality loss, because all heads now share the same key-value representation. In practice the degradation is small (0.3-0.5% on benchmarks), but it's measurable.</p>
 <p><strong>When is this used?</strong> PaLM (2022), Falcon, StarCoder, and several inference-optimized models. It's most valuable when you're serving many concurrent requests and KV cache memory is the bottleneck. For training, the compute savings are minimal since there's no KV cache.</p>
 <h2>6. Grouped-Query Attention: The Middle Ground</h2>
 <p>GQA, introduced by <a href="https://arxiv.org/abs/2305.13245">Ainslie et al. (2023)</a>, splits the difference between standard multi-head attention and MQA. Instead of one shared KV head or one per query head, you use a small number of KV head groups.</p>
-<script src="https://gist.github.com/cmenguy/a72e35342a326f3b78662b23a62d021b.js"></script>
+<div><a href="https://gist.github.com/cmenguy/f09fbba0ad64a1c996cffbea057d417d">https://gist.github.com/cmenguy/f09fbba0ad64a1c996cffbea057d417d</a></div>
 <p>Four query heads share one KV head. This gives you most of MQA's memory savings while keeping more representational capacity in the keys and values.</p>
-<script src="https://gist.github.com/cmenguy/8db8c01489ba03d4eaddd49a5efc2cec.js"></script>
-<script src="https://gist.github.com/cmenguy/3ed6971cf9e6b6cb991fceec50948c8a.js"></script>
+<div><a href="https://gist.github.com/cmenguy/ce3d05bff42e288ef7b1f7d2b7cf1d24">https://gist.github.com/cmenguy/ce3d05bff42e288ef7b1f7d2b7cf1d24</a></div>
+<div><a href="https://gist.github.com/cmenguy/b3c307fcabf37cc5e7c6468dc31c1142">https://gist.github.com/cmenguy/b3c307fcabf37cc5e7c6468dc31c1142</a></div>
 <p>The <code>repeat_interleave</code> call copies each KV head to match the query heads in its group. Alternatively, you can use <code>expand()</code> to avoid the copy and just broadcast, which is what optimized implementations do.</p>
 <p>Here's the comparison table:</p>
-<script src="https://gist.github.com/cmenguy/26743a90d58b557b61c2de6b03717867.js"></script>
+<div><a href="https://gist.github.com/cmenguy/90c64e8c89d0450ea105dcb05ce44f86">https://gist.github.com/cmenguy/90c64e8c89d0450ea105dcb05ce44f86</a></div>
 <p><strong>When is this used?</strong> Llama 2 70B, Llama 3, Mistral 7B, Gemma, and most new models released after mid-2023. GQA has become the default choice because it gets ~95% of MQA's memory savings with nearly zero quality loss. The Llama 2 paper showed you can even take an MHA-trained model and "uptrain" it to GQA with a small fraction of the original training budget.</p>
 <h2>7. Sparse Attention: Breaking the Quadratic Wall</h2>
 <p>Standard attention computes scores between every pair of tokens. For a sequence of length $n$, that's <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20O%28n%5E2%29" /> operations and <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20O%28n%5E2%29" /> memory. Double the context length, quadruple the cost. At 100k tokens, the attention matrix alone is $100{,}000 \times 100{,}000 = 10$ billion entries per head per layer.</p>
 <p>Sparse attention patterns solve this by only computing a subset of the attention scores. The idea, introduced by <a href="https://arxiv.org/abs/1904.10509">Child et al. (2019)</a> in "Generating Long Sequences with Sparse Transformers", is that most attention weights are near zero anyway. If you can identify which ones matter, you can skip the rest.</p>
 <p>The most common sparse patterns:</p>
-<script src="https://gist.github.com/cmenguy/df4872f46acaa9b0065ff9373828e858.js"></script>
+<div><a href="https://gist.github.com/cmenguy/a8a353332941fef93b04164a51bfbad5">https://gist.github.com/cmenguy/a8a353332941fef93b04164a51bfbad5</a></div>
 <p>In strided sparse, each token attends to every $s$-th token (stride) plus a local window. In fixed sparse, the sequence is split into blocks and tokens attend within their block plus to a set of "summary" positions.</p>
 <p>Here's a practical implementation of block-sparse attention:</p>
-<script src="https://gist.github.com/cmenguy/b7d62fb64a861da791dd1179fa54336f.js"></script>
-<script src="https://gist.github.com/cmenguy/55909197e3899176b3ff87c2601a1122.js"></script>
+<div><a href="https://gist.github.com/cmenguy/cf233720af29295bc62c7bb1ad1ccc33">https://gist.github.com/cmenguy/cf233720af29295bc62c7bb1ad1ccc33</a></div>
+<div><a href="https://gist.github.com/cmenguy/89b335ef6a502eeec1756c745049290a">https://gist.github.com/cmenguy/89b335ef6a502eeec1756c745049290a</a></div>
 <p>The complexity drops from <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20O%28n%5E2%29" /> to <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20O%28n%20%5Ccdot%20b%29" /> where $b$ is the effective neighborhood size (block size times number of neighbor blocks). For long sequences, this is the difference between "fits in memory" and "doesn't."</p>
 <p><strong>When is this used?</strong> BigBird (Google), Longformer (AI2), and various long-context models. In practice, pure sparse attention is less common in 2025-era LLMs. Most modern models use sliding window attention (next section) or combine sparse patterns with full attention in alternating layers.</p>
 <h2>8. Sliding Window Attention: Local Context, Global Reach</h2>
 <p>Sliding window attention is a specific, clean form of sparse attention. Each token attends to only a fixed window of $w$ tokens around it. Introduced in Longformer and popularized by <a href="https://arxiv.org/abs/2310.06825">Mistral 7B</a>.</p>
-<script src="https://gist.github.com/cmenguy/62eaa90cb5c047992b62b8592cd9ecca.js"></script>
+<div><a href="https://gist.github.com/cmenguy/5034d66130fd4166336234157e3f8342">https://gist.github.com/cmenguy/5034d66130fd4166336234157e3f8342</a></div>
 <p>The math is the same, just a different mask. For a window of size $w$:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20M_%7Bij%7D%20%3D%20%5Cbegin%7Bcases%7D%200%20%26%20%5Ctext%7Bif%20%7D%20i%20-%20w%20%3C%20j%20%5Cleq%20i%20%5C%5C%20-%5Cinfty%20%26%20%5Ctext%7Botherwise%7D%20%5Cend%7Bcases%7D" /></p>
-<script src="https://gist.github.com/cmenguy/a312a70d334f5a0f4e01c97e51171899.js"></script>
-<script src="https://gist.github.com/cmenguy/157e8f0fe43c542a0ae78951e17d3e10.js"></script>
-<script src="https://gist.github.com/cmenguy/2c8b8f4abd912ce4092ccf502e67a747.js"></script>
+<div><a href="https://gist.github.com/cmenguy/846d4187422414688b833a04869e2c1f">https://gist.github.com/cmenguy/846d4187422414688b833a04869e2c1f</a></div>
+<div><a href="https://gist.github.com/cmenguy/fa48c3f68beb4ca180e3c813778e33dd">https://gist.github.com/cmenguy/fa48c3f68beb4ca180e3c813778e33dd</a></div>
+<div><a href="https://gist.github.com/cmenguy/9b2351ff02f0cad828bf1d0be9cf0205">https://gist.github.com/cmenguy/9b2351ff02f0cad828bf1d0be9cf0205</a></div>
 <p>"But wait, if token 7 can only see tokens 5-7 directly, how does it get information from token 0?" Through stacking layers. In a model with $L$ layers, information can propagate <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20L%20%5Ctimes%20w" /> positions. Mistral 7B uses <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20w%20%3D%204%7B%2C%7D096" /> with 32 layers, giving an effective receptive field of $32 \times 4{,}096 = 131{,}072$ tokens. That's how you get long context without quadratic scaling.</p>
 <p>The memory savings are real. Instead of a KV cache that grows linearly with sequence length, you only need to store the last $w$ key-value pairs per layer. Once a token slides out of the window, its KV entry gets recycled. This is done with a rolling buffer:</p>
-<script src="https://gist.github.com/cmenguy/a0b0b8ef27c9a7815731c72c25aa797a.js"></script>
+<div><a href="https://gist.github.com/cmenguy/bef8e2d5538c28bc1bad2704b8b6cb2e">https://gist.github.com/cmenguy/bef8e2d5538c28bc1bad2704b8b6cb2e</a></div>
 <p>Fixed memory, regardless of how long the conversation gets.</p>
 <p><strong>When is this used?</strong> Mistral 7B was the model that popularized this approach. Mistral uses sliding window in some layers and full attention in others (alternating pattern). Mixtral follows the same strategy. Many newer models use a similar hybrid: full attention for some layers to maintain global context, sliding window for others to save memory.</p>
 <h2>9. Flash Attention: Same Math, Different Memory</h2>
 <p>Flash Attention, introduced by <a href="https://arxiv.org/abs/2205.14135">Dao et al. (2022)</a>, is the most impactful attention optimization of the past few years. The key insight: standard attention is bottlenecked not by compute, but by memory bandwidth.</p>
 <p>Here's the problem. Standard attention materializes the full <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20n%20%5Ctimes%20n" /> attention matrix in GPU high-bandwidth memory (HBM):</p>
-<script src="https://gist.github.com/cmenguy/ba5f80d771812a6fa8c3d2b7fc658aa7.js"></script>
+<div><a href="https://gist.github.com/cmenguy/6bbb72e4d0e8ecfa29668827f4713be3">https://gist.github.com/cmenguy/6bbb72e4d0e8ecfa29668827f4713be3</a></div>
 <p>GPU SRAM (on-chip cache) is ~100x faster than HBM, but much smaller (20MB vs 40-80GB on an A100). Flash Attention restructures the computation to work in tiles that fit in SRAM, never materializing the full attention matrix:</p>
-<script src="https://gist.github.com/cmenguy/26a14b9aa43432c224f1ba9b4c4451c8.js"></script>
+<div><a href="https://gist.github.com/cmenguy/c0a85b656b07eb4aabbde8e674352f6d">https://gist.github.com/cmenguy/c0a85b656b07eb4aabbde8e674352f6d</a></div>
 <p>The math is identical to standard attention. Same inputs, same outputs, same gradients. The trick is an online softmax algorithm that processes the attention matrix in tiles without needing the full matrix at once.</p>
 <p>The online softmax works like this. For standard softmax, you need the max over all elements (for numerical stability) before computing anything. The tiled version keeps a running max and a running sum, correcting for new tiles as they arrive:</p>
-<script src="https://gist.github.com/cmenguy/5e51517ebe89bb1cece23a674843caa3.js"></script>
-<script src="https://gist.github.com/cmenguy/6bc5e9025ee32fe85372bc5a36ae4379.js"></script>
-<script src="https://gist.github.com/cmenguy/a39c991bc623605188a51b6ec27d4ce8.js"></script>
+<div><a href="https://gist.github.com/cmenguy/f59a41cc5c8323be9a2d6815f9dc76f7">https://gist.github.com/cmenguy/f59a41cc5c8323be9a2d6815f9dc76f7</a></div>
+<div><a href="https://gist.github.com/cmenguy/d7c0a8a45013b81b4453f68e0de6b6ab">https://gist.github.com/cmenguy/d7c0a8a45013b81b4453f68e0de6b6ab</a></div>
+<div><a href="https://gist.github.com/cmenguy/90b1e0e11756b71eea703a0be3fd0319">https://gist.github.com/cmenguy/90b1e0e11756b71eea703a0be3fd0319</a></div>
 <p>Exact same result, computed without ever storing all scores simultaneously.</p>
 <p>In practice, you don't implement Flash Attention yourself. It's a CUDA kernel that PyTorch exposes via <code>F.scaled_dot_product_attention</code>:</p>
-<script src="https://gist.github.com/cmenguy/9aaeeb67e7798656e6bf8408cb6fa7e9.js"></script>
+<div><a href="https://gist.github.com/cmenguy/c0540a2cf5dd5c264d03b6488cde501b">https://gist.github.com/cmenguy/c0540a2cf5dd5c264d03b6488cde501b</a></div>
 <p>The speedup numbers:</p>
-<script src="https://gist.github.com/cmenguy/6837a8691e59e772b93d5fea29d5ca2f.js"></script>
+<div><a href="https://gist.github.com/cmenguy/302518048f8d07ad5a46a3e43dfd07d5">https://gist.github.com/cmenguy/302518048f8d07ad5a46a3e43dfd07d5</a></div>
 <p>The longer the sequence, the bigger the win, because HBM bandwidth becomes more of a bottleneck relative to compute. Flash Attention 2 improved on the original by better partitioning work across GPU warps and reducing non-matmul operations.</p>
 <p><strong>When is this used?</strong> Basically everywhere in 2025-2026. PyTorch's <code>scaled_dot_product_attention</code> uses Flash Attention by default when available. Every major framework (vLLM, TGI, llama.cpp) uses it. If you're running inference or training on a modern GPU with sequences longer than a few hundred tokens, Flash Attention is what's running under the hood.</p>
 <h2>10. Putting It All Together: What Modern Models Actually Use</h2>
 <p>Let's map these attention variants to the models you're actually working with:</p>
-<script src="https://gist.github.com/cmenguy/6acc56c96bdcc755a954cc64d56ea8ac.js"></script>
+<div><a href="https://gist.github.com/cmenguy/981e6010241166744061e4702ed3ed79">https://gist.github.com/cmenguy/981e6010241166744061e4702ed3ed79</a></div>
 <p>A few patterns to notice:</p>
 <p><strong>GQA won.</strong> After Llama 2 showed that GQA matches MHA quality with a fraction of the KV cache, everyone adopted it. The 8 KV heads number appears repeatedly because it's a sweet spot: enough capacity for quality, small enough for efficient serving.</p>
 <p><strong>Flash Attention is everywhere.</strong> It went from research paper to industry standard in about a year. Any model released after 2023 assumes Flash Attention is available.</p>

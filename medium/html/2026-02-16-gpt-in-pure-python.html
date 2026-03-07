@@ -8,19 +8,19 @@
 <p>So I spent the weekend going through Karpathy's code line by line, making sure I understood every piece, every derivative, every design choice. What follows is that exercise: a complete walkthrough of a GPT implementation in pure Python, mapped back to the concepts from <a href="https://arxiv.org/abs/1706.03762">Attention Is All You Need</a> and the broader transformer literature. If you're someone who uses these models daily but hasn't looked under the hood in a while, this is your excuse to refresh the fundamentals.</p>
 <h2>1. The Setup: Data and Tokenization</h2>
 <p>The code starts by downloading a dataset of names (from Karpathy's <a href="https://github.com/karpathy/makemore">makemore</a> project) and building a character-level tokenizer.</p>
-<script src="https://gist.github.com/cmenguy/9e7f1eccca0ef0d086d82aaf0520a481.js"></script>
+<div><a href="https://gist.github.com/cmenguy/53234b377cba5b494b8c49095486c008">https://gist.github.com/cmenguy/53234b377cba5b494b8c49095486c008</a></div>
 <p>Nothing fancy here. We download a list of ~32,000 names, strip whitespace, and shuffle. Each name is a "document" in this mini language model. Here's what the raw data looks like:</p>
-<script src="https://gist.github.com/cmenguy/ff17c39f81fc4fe4ef7ff5e5701a289d.js"></script>
+<div><a href="https://gist.github.com/cmenguy/de625c48d4d6af0a88c45bd9b2720317">https://gist.github.com/cmenguy/de625c48d4d6af0a88c45bd9b2720317</a></div>
 <p>The model's job: learn the statistical patterns of how characters follow each other in English names, then generate new ones.</p>
 <p>The tokenizer is as simple as it gets:</p>
-<script src="https://gist.github.com/cmenguy/12f7a1aeac2ea5ca5caee06d4da08926.js"></script>
+<div><a href="https://gist.github.com/cmenguy/fe69c3a011c4d09b0a1f3b2dcdb72119">https://gist.github.com/cmenguy/fe69c3a011c4d09b0a1f3b2dcdb72119</a></div>
 <p>This gives us 27 tokens: 26 lowercase letters plus a BOS (beginning-of-sequence) token. The mapping is just alphabetical order:</p>
-<script src="https://gist.github.com/cmenguy/b2bfceeb84e31c798655473566173c35.js"></script>
+<div><a href="https://gist.github.com/cmenguy/a4ee84c97a029fdf322b4dfee36d6673">https://gist.github.com/cmenguy/a4ee84c97a029fdf322b4dfee36d6673</a></div>
 <p>In production LLMs, you'd use something like BPE with a vocab of 32k-128k tokens. Here, character-level keeps things dead simple. The BOS token is used both to signal the start and end of a name, which is a common trick in small language models.</p>
 <h2>2. Autograd: Building the Computation Graph</h2>
 <p>Here's where things get interesting. Real frameworks like PyTorch give you automatic differentiation for free. Karpathy builds his own from scratch in about 50 lines. This is the <code>Value</code> class, and it's the engine that makes backpropagation work.</p>
 <h4>2.1 The Value Node</h4>
-<script src="https://gist.github.com/cmenguy/27c66b1f7f0ce4236d4f62cf09b28d22.js"></script>
+<div><a href="https://gist.github.com/cmenguy/801e725d1cb7e318f62efa093d36911f">https://gist.github.com/cmenguy/801e725d1cb7e318f62efa093d36911f</a></div>
 <p>Each <code>Value</code> holds four things:
 - <code>data</code>: the actual scalar number (forward pass result)
 - <code>grad</code>: the gradient of the loss with respect to this node (filled in during backward pass)
@@ -29,15 +29,15 @@
 <p>The <code>__slots__</code> line is a Python optimization that prevents dynamic attribute creation, saving memory. When you're about to create thousands of <code>Value</code> objects per training step, that matters.</p>
 <h4>2.2 Arithmetic Operations</h4>
 <p>Each math operation creates a new <code>Value</code> and records the local gradient. This is the chain rule made explicit:</p>
-<script src="https://gist.github.com/cmenguy/edf692645a42e741cefd6914cc581071.js"></script>
+<div><a href="https://gist.github.com/cmenguy/fe15929463b4ad4527e2d5bdf5b873c9">https://gist.github.com/cmenguy/fe15929463b4ad4527e2d5bdf5b873c9</a></div>
 <p>For addition $f(a, b) = a + b$: the partial derivatives are <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7B%5Cpartial%20f%7D%7B%5Cpartial%20a%7D%20%3D%201" /> and <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7B%5Cpartial%20f%7D%7B%5Cpartial%20b%7D%20%3D%201" />. That's the <code>(1, 1)</code> tuple.</p>
 <p>For multiplication <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20f%28a%2C%20b%29%20%3D%20a%20%5Ccdot%20b" />: the partial derivatives are <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7B%5Cpartial%20f%7D%7B%5Cpartial%20a%7D%20%3D%20b" /> and <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7B%5Cpartial%20f%7D%7B%5Cpartial%20b%7D%20%3D%20a" />. That's the <code>(other.data, self.data)</code> tuple. Classic product rule.</p>
 <h4>2.3 Power, Log, Exp, and ReLU</h4>
-<script src="https://gist.github.com/cmenguy/8d2676f8054497d0e22ff52419d274c5.js"></script>
+<div><a href="https://gist.github.com/cmenguy/5b39d0536b30d2c16e4734227b5c0a20">https://gist.github.com/cmenguy/5b39d0536b30d2c16e4734227b5c0a20</a></div>
 <p>Same pattern. The power rule: <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7Bd%7D%7Bdx%7D%20x%5En%20%3D%20n%20%5Ccdot%20x%5E%7Bn-1%7D" />. The log derivative: <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7Bd%7D%7Bdx%7D%20%5Cln%28x%29%20%3D%20%5Cfrac%7B1%7D%7Bx%7D" />. The exp derivative: <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7Bd%7D%7Bdx%7D%20e%5Ex%20%3D%20e%5Ex" /> (the function is its own derivative, which is why exponentials are so useful in math). ReLU: gradient is 1 if positive, 0 otherwise.</p>
 <h4>2.4 The Backward Pass</h4>
 <p>This is the heart of backpropagation:</p>
-<script src="https://gist.github.com/cmenguy/3f7d9e043fa4382d32b6f4ef969140ad.js"></script>
+<div><a href="https://gist.github.com/cmenguy/685a7073468a6725124200b79de4d292">https://gist.github.com/cmenguy/685a7073468a6725124200b79de4d292</a></div>
 <p>Two things happening here. First, a topological sort of the computation graph (DFS post-order). This gives us an ordering where every node appears after all of its children. Then we walk backwards through that order, applying the chain rule at each node.</p>
 <p>The chain rule says: if <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7B%5Cpartial%20L%7D%7B%5Cpartial%20v%7D" /> is the gradient at node $v$, and $v$ was computed from child $c$ with local gradient <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7B%5Cpartial%20v%7D%7B%5Cpartial%20c%7D" />, then:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Cfrac%7B%5Cpartial%20L%7D%7B%5Cpartial%20c%7D%20%5Cmathrel%7B%2B%7D%3D%20%5Cfrac%7B%5Cpartial%20v%7D%7B%5Cpartial%20c%7D%20%5Ccdot%20%5Cfrac%7B%5Cpartial%20L%7D%7B%5Cpartial%20v%7D" /></p>
@@ -45,94 +45,94 @@
 <p>Setting <code>self.grad = 1</code> at the top makes sense because <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cfrac%7B%5Cpartial%20L%7D%7B%5Cpartial%20L%7D%20%3D%201" />: the loss's gradient with respect to itself is 1.</p>
 <h4>2.5 Helper Operations</h4>
 <p>The remaining methods define subtraction, division, and reverse operations:</p>
-<script src="https://gist.github.com/cmenguy/f4cf73289e96fd8d0fd4eb04f6d2751e.js"></script>
+<div><a href="https://gist.github.com/cmenguy/6e2130434274596f659e7675d9e2d0d3">https://gist.github.com/cmenguy/6e2130434274596f659e7675d9e2d0d3</a></div>
 <p>Division is implemented as multiplication by the inverse (<img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20a%20%2F%20b%20%3D%20a%20%5Ccdot%20b%5E%7B-1%7D" />), so the power rule and multiplication rule handle the gradient automatically. The <code>__r*__</code> methods handle cases where a plain number is on the left side: <code>3 + value</code> calls <code>value.__radd__(3)</code>.</p>
 <h2>3. Model Parameters: What the Network Knows</h2>
 <p>Now we set up the model's parameters. These are the learnable weights that store everything the model learns during training.</p>
-<script src="https://gist.github.com/cmenguy/b5e2e0eb428fd6a15b3085574adde3c5.js"></script>
+<div><a href="https://gist.github.com/cmenguy/30cbf19fe87d9fb62e77ecd8f4f403bf">https://gist.github.com/cmenguy/30cbf19fe87d9fb62e77ecd8f4f403bf</a></div>
 <p>This is a tiny GPT: 1 layer, 16-dimensional embeddings, 4 attention heads. GPT-2 Small used 12 layers, 768-dimensional embeddings, and 12 heads. GPT-3 used 96 layers and 12,288 dimensions. But the architecture is identical. Everything scales.</p>
-<script src="https://gist.github.com/cmenguy/04ff225b354610ab855ec32364f09805.js"></script>
+<div><a href="https://gist.github.com/cmenguy/ccc7a9d0f17c5dde67de00d78302c634">https://gist.github.com/cmenguy/ccc7a9d0f17c5dde67de00d78302c634</a></div>
 <p>This helper creates a 2D list of <code>Value</code> objects initialized from a Gaussian distribution with standard deviation 0.08. In PyTorch you'd use <code>torch.randn(nout, nin) * std</code>. The small std keeps initial values near zero, which helps training stability.</p>
 <h4>3.1 The State Dict</h4>
-<script src="https://gist.github.com/cmenguy/9375f4cb2b923232c4cb52f55bd633ea.js"></script>
+<div><a href="https://gist.github.com/cmenguy/44984dc3e4d1fcabc0c8440e78f6b334">https://gist.github.com/cmenguy/44984dc3e4d1fcabc0c8440e78f6b334</a></div>
 <p>This mirrors exactly what you'd see in a PyTorch GPT model's <code>state_dict()</code>. Here's what each matrix does:</p>
-<script src="https://gist.github.com/cmenguy/290212bfc6cf5563b22496af52184b8a.js"></script>
+<div><a href="https://gist.github.com/cmenguy/2bf14c4523477fe3f79c194c9f654d0d">https://gist.github.com/cmenguy/2bf14c4523477fe3f79c194c9f654d0d</a></div>
 <p>The MLP expansion factor of 4x is standard in transformers. The original "Attention Is All You Need" paper used <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_%7Bff%7D%20%3D%202048" /> with <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_%7Bmodel%7D%20%3D%20512" />, which is the same 4:1 ratio.</p>
 <p>Finally, all parameters get flattened into a single list for the optimizer:</p>
-<script src="https://gist.github.com/cmenguy/4ebb8e74605880d96f125787fcc4a3b2.js"></script>
+<div><a href="https://gist.github.com/cmenguy/29a64eadd01836e7ede6b4304a3b781f">https://gist.github.com/cmenguy/29a64eadd01836e7ede6b4304a3b781f</a></div>
 <p>This gives us 4,192 parameters. GPT-2 had 117 million. Same idea, different scale.</p>
 <h2>4. The Model Architecture: A GPT Forward Pass</h2>
 <p>Now for the actual model. The <code>gpt()</code> function takes a single token and its position, runs it through the transformer, and returns logits (unnormalized scores) over the vocabulary.</p>
 <h4>4.1 Building Blocks: Linear, Softmax, RMSNorm</h4>
 <p>Before the main model, three utility functions:</p>
-<script src="https://gist.github.com/cmenguy/d45181b2e263d1c2ab0340846084592b.js"></script>
+<div><a href="https://gist.github.com/cmenguy/87428ad7508f3d9f11f29d4b384b0d02">https://gist.github.com/cmenguy/87428ad7508f3d9f11f29d4b384b0d02</a></div>
 <p>A matrix-vector multiply. For each row <code>wo</code> in weight matrix <code>w</code>, compute the dot product with input <code>x</code>. If <code>w</code> is shape (m, n) and <code>x</code> has length n, the output has length m. This is the fundamental operation in neural networks: $y = Wx$.</p>
-<script src="https://gist.github.com/cmenguy/8ef14eff35d998217a62a92e2e357c12.js"></script>
+<div><a href="https://gist.github.com/cmenguy/1a359e5cf54d019bdb3e4edf8113e100">https://gist.github.com/cmenguy/1a359e5cf54d019bdb3e4edf8113e100</a></div>
 <p>Softmax converts raw scores into a probability distribution. The formula from <a href="https://arxiv.org/abs/1706.03762">Attention Is All You Need</a>:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Ctext%7Bsoftmax%7D%28z_i%29%20%3D%20%5Cfrac%7Be%5E%7Bz_i%7D%7D%7B%5Csum_j%20e%5E%7Bz_j%7D%7D" /></p>
 <p>The <code>max_val</code> subtraction is a numerical stability trick. Since <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Ctext%7Bsoftmax%7D%28z%29%20%3D%20%5Ctext%7Bsoftmax%7D%28z%20-%20c%29" /> for any constant $c$, subtracting the max prevents overflow in the exponential. This doesn't change the result but keeps numbers in a range where <code>math.exp</code> won't explode.</p>
-<script src="https://gist.github.com/cmenguy/2a8f0a99e84cc164f6c936a7d5e54236.js"></script>
+<div><a href="https://gist.github.com/cmenguy/484d4ec9cf840aad3b65fee306412953">https://gist.github.com/cmenguy/484d4ec9cf840aad3b65fee306412953</a></div>
 <p>RMSNorm (Root Mean Square Normalization) is a simpler alternative to LayerNorm. Instead of subtracting the mean and dividing by std (like LayerNorm), it just divides by the RMS:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Ctext%7BRMSNorm%7D%28x_i%29%20%3D%20%5Cfrac%7Bx_i%7D%7B%5Csqrt%7B%5Cfrac%7B1%7D%7Bn%7D%5Csum_%7Bj%7D%20x_j%5E2%20%2B%20%5Cepsilon%7D%7D" /></p>
 <p>The original transformer paper used LayerNorm, but most modern architectures (Llama, Gemma, etc.) switched to RMSNorm because it's cheaper and works just as well. No bias subtraction, no learned affine parameters here. The <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Cepsilon%20%3D%2010%5E%7B-5%7D" /> prevents division by zero.</p>
 <h4>4.2 The GPT Function</h4>
 <p>Now the main event. I'll walk through the <code>gpt()</code> function section by section. It processes one token at a time (as opposed to a full sequence), keeping a running KV cache for previous positions.</p>
-<script src="https://gist.github.com/cmenguy/9f6ee3226153a29db0f243f3c83cf3e7.js"></script>
+<div><a href="https://gist.github.com/cmenguy/f0176d898f73dd8e94e66d46c483fa46">https://gist.github.com/cmenguy/f0176d898f73dd8e94e66d46c483fa46</a></div>
 <p><strong>Step 1: Embedding.</strong> Look up the token embedding and position embedding, add them element-wise. This is Section 3.4 of the original paper: "We use learned embeddings to convert the input tokens and output tokens to vectors of dimension <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_%7Bmodel%7D" />. [...] we also use the usual learned positional embeddings."</p>
 <p>The sum of token + position gives the model both "what token is this?" and "where in the sequence is it?" in a single vector. Let's trace what happens when we feed in BOS (token 26) at position 0, the first step when processing "yuheng":</p>
-<script src="https://gist.github.com/cmenguy/ce496807bd87cf5500550c923f1969e9.js"></script>
+<div><a href="https://gist.github.com/cmenguy/52e511b30ebaf01997f22db665fd9b43">https://gist.github.com/cmenguy/52e511b30ebaf01997f22db665fd9b43</a></div>
 <p>Small random numbers get added together, then RMSNorm rescales them. At initialization this is all noise, but after training these embeddings will encode meaningful character and position information. RMSNorm stabilizes the values before they enter the transformer layers.</p>
-<script src="https://gist.github.com/cmenguy/85e00ec1d6f64106a99430c3166d9b78.js"></script>
+<div><a href="https://gist.github.com/cmenguy/5b7b53670de0bdd13c67b1a7ef731227">https://gist.github.com/cmenguy/5b7b53670de0bdd13c67b1a7ef731227</a></div>
 <p><strong>Step 2: Compute Q, K, V.</strong> This is the setup for attention. The input <code>x</code> is projected three times through different weight matrices to produce queries (Q), keys (K), and values (V). From Section 3.2.1 of the paper: "The queries, keys and values are [...] linear projections."</p>
 <p>The key and value vectors get appended to a running cache (<code>keys[li]</code>, <code>values[li]</code>), which stores the K and V vectors from all previous positions. This is the <strong>KV cache</strong> that makes autoregressive generation efficient: you don't need to recompute K and V for positions you've already processed.</p>
 <p>Continuing our trace of BOS at position 0:</p>
-<script src="https://gist.github.com/cmenguy/4252c4fd914f803acdf96642c4d6215c.js"></script>
+<div><a href="https://gist.github.com/cmenguy/ca1a76f92b47746ddbcf128fbd39c8fc">https://gist.github.com/cmenguy/ca1a76f92b47746ddbcf128fbd39c8fc</a></div>
 <p>Three different 16-d vectors from the same input. Q asks "what am I looking for?", K says "what do I contain?", V says "what information should I pass forward if attended to?"</p>
 <p>Note the <code>x_residual = x</code> before the norm. This sets up the residual connection, which we'll use after attention.</p>
-<script src="https://gist.github.com/cmenguy/63820b15cf57c7423f04d20a05056376.js"></script>
+<div><a href="https://gist.github.com/cmenguy/406aca856ff30749300c8f36d31c709d">https://gist.github.com/cmenguy/406aca856ff30749300c8f36d31c709d</a></div>
 <p><strong>Step 3: Split into heads.</strong> The full Q, K, V vectors (dimension 16) get split into 4 heads of dimension 4 each. This is multi-head attention: instead of one big attention operation, we run 4 smaller ones in parallel, each attending to different aspects of the input. Section 3.2.2: "Multi-head attention allows the model to jointly attend to information from different representation subspaces at different positions."</p>
-<script src="https://gist.github.com/cmenguy/989d4d074b348dbc1491dd00f9e6507f.js"></script>
+<div><a href="https://gist.github.com/cmenguy/6cd1838c1e0d36753fa447f30014bb6a">https://gist.github.com/cmenguy/6cd1838c1e0d36753fa447f30014bb6a</a></div>
 <p><strong>Step 4: Scaled dot-product attention scores.</strong> For each past position <code>t</code>, compute the dot product between the current query and that position's key, then scale by <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Csqrt%7Bd_k%7D" />. This is the core attention formula from the paper:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Ctext%7BAttention%7D%28Q%2C%20K%2C%20V%29%20%3D%20%5Ctext%7Bsoftmax%7D%5Cleft%28%5Cfrac%7BQK%5ET%7D%7B%5Csqrt%7Bd_k%7D%7D%5Cright%29V" /></p>
 <p>Why the <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Csqrt%7Bd_k%7D" /> scaling? The paper explains it directly (Section 3.2.1): for large <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20d_k" />, the dot products grow large in magnitude, pushing the softmax into regions with extremely small gradients. Dividing by <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Csqrt%7Bd_k%7D" /> keeps the variance of the dot product at 1 regardless of dimension.</p>
 <p>In our trace, this is position 0 so there's only one key in the cache (itself). The attention weight is trivially 1.0:</p>
-<script src="https://gist.github.com/cmenguy/5c62388ac3f4e5176b731518737b5c3a.js"></script>
+<div><a href="https://gist.github.com/cmenguy/7c19cd22cd9bec0aa6179b8a7db3cdff">https://gist.github.com/cmenguy/7c19cd22cd9bec0aa6179b8a7db3cdff</a></div>
 <p>At position 3 processing "h", there would be 4 keys in the cache (BOS, y, u, h) and the attention weights would be a distribution over all four, like <code>[0.18, 0.31, 0.22, 0.29]</code>. That's when attention gets interesting: the model learns which previous characters are most relevant for predicting what comes next.</p>
 <p>Note there's no causal mask here. Since we process one token at a time and only store keys/values up to the current position, causality is enforced implicitly. The model can only attend to positions it has already seen.</p>
-<script src="https://gist.github.com/cmenguy/883b10a228110d696fcfa47e8bdef85c.js"></script>
+<div><a href="https://gist.github.com/cmenguy/41665ba2c247f75e8645860a3ab181da">https://gist.github.com/cmenguy/41665ba2c247f75e8645860a3ab181da</a></div>
 <p><strong>Step 5: Weighted sum of values.</strong> The attention weights (a probability distribution over all past positions) are used to compute a weighted average of the value vectors. Positions with higher attention scores contribute more to the output. Each head's output is concatenated into <code>x_attn</code>.</p>
 <p>This is the "V" part of the attention formula: after softmax gives us the weights, we multiply them against the values to get the head's output.</p>
-<script src="https://gist.github.com/cmenguy/fccf61cf81129956f23a6efc4e0ef047.js"></script>
+<div><a href="https://gist.github.com/cmenguy/66ab70889da3a87956dcc8034a96b00c">https://gist.github.com/cmenguy/66ab70889da3a87956dcc8034a96b00c</a></div>
 <p><strong>Step 6: Output projection and residual connection.</strong> The concatenated multi-head output passes through one more linear layer (<code>attn_wo</code>), then gets added back to the residual. Section 3.2.2: "Multi-head attention [...] <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Ctext%7BMultiHead%7D%28Q%2C%20K%2C%20V%29%20%3D%20%5Ctext%7BConcat%7D%28%5Ctext%7Bhead%7D_1%2C%20...%2C%20%5Ctext%7Bhead%7D_h%29W%5EO" />".</p>
 <p>The residual connection (<img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20x%20%3D%20x%20%2B%20%5Ctext%7Battention%7D%28x%29" />) is what makes deep transformers trainable. Without it, gradients would vanish or explode through many layers. With it, gradients have a "highway" to flow directly from the loss back to early layers.</p>
-<script src="https://gist.github.com/cmenguy/44810c8647456aa6b2a23d038dd1eab7.js"></script>
+<div><a href="https://gist.github.com/cmenguy/84e3e5b62de393b3045713c1122b4bb5">https://gist.github.com/cmenguy/84e3e5b62de393b3045713c1122b4bb5</a></div>
 <p><strong>Step 7: Feed-forward (MLP) block.</strong> Section 3.3 of the paper: "Each of the layers in our encoder and decoder contains a fully connected feed-forward network [...] <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Ctext%7BFFN%7D%28x%29%20%3D%20%5Cmax%280%2C%20xW_1%20%2B%20b_1%29W_2%20%2B%20b_2" />."</p>
 <p>The pattern is: expand (16 -&gt; 64), nonlinearity (ReLU), contract (64 -&gt; 16), residual add. The expansion gives the model more "workspace" to compute nonlinear features. The original paper used ReLU; GPT-2 switched to GELU. This code uses ReLU for simplicity (since it's trivially differentiable).</p>
 <p>In the trace, the expand-relu-contract pattern looks like this:</p>
-<script src="https://gist.github.com/cmenguy/2d02b2d5722915f08da265e0cebaa69b.js"></script>
+<div><a href="https://gist.github.com/cmenguy/b52a2d9b4b7b05ae575c3974c0abe92d">https://gist.github.com/cmenguy/b52a2d9b4b7b05ae575c3974c0abe92d</a></div>
 <p>ReLU kills roughly half the neurons, which introduces sparsity. The surviving neurons carry the signal forward. The residual connection wraps the entire MLP block. No biases in this implementation, which follows modern practice (Llama, PaLM, and others all dropped biases).</p>
-<script src="https://gist.github.com/cmenguy/45f78a35ed1f57e61922d823a7af424e.js"></script>
+<div><a href="https://gist.github.com/cmenguy/4cf16d4faa323fdd6a92c3c966a3b954">https://gist.github.com/cmenguy/4cf16d4faa323fdd6a92c3c966a3b954</a></div>
 <p><strong>Step 8: Project to vocabulary.</strong> The final hidden state gets projected to vocab-sized logits through the <code>lm_head</code> matrix. Each element of the output represents how likely that token is to come next. These are raw scores (logits), not probabilities. Here's the end of our trace:</p>
-<script src="https://gist.github.com/cmenguy/31a681c84259c84d23f8076576cd3e2d.js"></script>
+<div><a href="https://gist.github.com/cmenguy/4e81676dc6f4b2b2fa45bbaad58d2fb6">https://gist.github.com/cmenguy/4e81676dc6f4b2b2fa45bbaad58d2fb6</a></div>
 <p>At initialization, the model's predictions are basically random. It assigns probability 0.027 to "y" (the correct next token after BOS for "yuheng"), which isn't far from uniform random chance (1/27 = 0.037). Training will push that probability up over 1000 steps. The training loop applies softmax to the logits and computes the loss.</p>
 <h2>5. The Training Loop</h2>
 <p>With the model defined, here's how it learns.</p>
 <h4>5.1 Optimizer Setup</h4>
-<script src="https://gist.github.com/cmenguy/3539ead1112122a713038bd3c8a7d54a.js"></script>
+<div><a href="https://gist.github.com/cmenguy/508bc4e3f92c6fd705e639782a17ca11">https://gist.github.com/cmenguy/508bc4e3f92c6fd705e639782a17ca11</a></div>
 <p>Adam optimizer, initialized from scratch. Two buffers: <code>m</code> tracks the exponential moving average of gradients (momentum), <code>v</code> tracks the exponential moving average of squared gradients (adaptive learning rate per parameter). This is why Adam uses 2x the memory of vanilla SGD.</p>
 <h4>5.2 The Loop</h4>
-<script src="https://gist.github.com/cmenguy/e30128f68d728fa6813d6b14df0e509e.js"></script>
+<div><a href="https://gist.github.com/cmenguy/05dad841c3da2977aaf29f7791107fa3">https://gist.github.com/cmenguy/05dad841c3da2977aaf29f7791107fa3</a></div>
 <p>Each step picks one document (cycling through the shuffled list), tokenizes it to a list of integers, and wraps it with BOS tokens on both sides. For the name "yuheng", here's what tokenization produces:</p>
-<script src="https://gist.github.com/cmenguy/2921f0ee102baf1d354b430f13c8687e.js"></script>
+<div><a href="https://gist.github.com/cmenguy/df10a8109f839f67cd6672c01958cdcb">https://gist.github.com/cmenguy/df10a8109f839f67cd6672c01958cdcb</a></div>
 <p>The BOS at the start tells the model "a name is starting." The BOS at the end acts as an end-of-sequence signal: the model learns that after the last character of a name, BOS comes next, which during generation tells us to stop.</p>
-<script src="https://gist.github.com/cmenguy/8ccb5131a17235f0f8520fc1770b36cc.js"></script>
+<div><a href="https://gist.github.com/cmenguy/c271c4b3e7ed167fece61b39ca0e25e1">https://gist.github.com/cmenguy/c271c4b3e7ed167fece61b39ca0e25e1</a></div>
 <p>The forward pass processes each token position sequentially, building up the KV cache. At each position, the model predicts the next token. For "yuheng", the training pairs look like this:</p>
-<script src="https://gist.github.com/cmenguy/91f6d88c13a0f6e989c4447c9dfe8974.js"></script>
+<div><a href="https://gist.github.com/cmenguy/60b3ef8e7668d26bbdaa2281eaf1c0f1">https://gist.github.com/cmenguy/60b3ef8e7668d26bbdaa2281eaf1c0f1</a></div>
 <p>The loss is the negative log-likelihood of the correct next token:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20%5Cmathcal%7BL%7D%20%3D%20-%5Cfrac%7B1%7D%7Bn%7D%5Csum_%7Bt%3D1%7D%5E%7Bn%7D%20%5Clog%20P%28x_t%20%5Cmid%20x_%7B%3Ct%7D%29" /></p>
 <p>This is cross-entropy loss. If the model assigns probability 1.0 to the correct next token, <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20-%5Clog%281.0%29%20%3D%200" />, and the loss is zero. If it assigns 0.01, <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20-%5Clog%280.01%29%20%3D%204.6" />. The model is incentivized to put as much probability mass as possible on the correct next token at every position.</p>
 <h4>5.3 Backward and Adam Update</h4>
-<script src="https://gist.github.com/cmenguy/7f57f3b802e0c63d6cffac7fe2f30903.js"></script>
+<div><a href="https://gist.github.com/cmenguy/f715218d194c8b5388383f866f824593">https://gist.github.com/cmenguy/f715218d194c8b5388383f866f824593</a></div>
 <p><code>loss.backward()</code> triggers the backward pass through the entire computation graph, populating <code>.grad</code> on every <code>Value</code> node. Then the Adam update rule, which was introduced in <a href="https://arxiv.org/abs/1412.6980">Kingma &amp; Ba, 2015</a>:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20m_t%20%3D%20%5Cbeta_1%20m_%7Bt-1%7D%20%2B%20%281%20-%20%5Cbeta_1%29%20g_t" /></p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20v_t%20%3D%20%5Cbeta_2%20v_%7Bt-1%7D%20%2B%20%281%20-%20%5Cbeta_2%29%20g_t%5E2" /></p>
@@ -141,7 +141,7 @@
 <p>The bias correction (<img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Chat%7Bm%7D" /> and <img alt="equation" src="https://latex.codecogs.com/png.latex?\inline%20%5Chat%7Bv%7D" />) compensates for the fact that <code>m</code> and <code>v</code> are initialized to zero, which biases them toward zero in early steps. The learning rate decays linearly from 0.01 to 0 over training. After updating each parameter, its gradient is reset to 0 for the next step.</p>
 <h2>6. Inference: Generating New Names</h2>
 <p>After training, the model generates text autoregressively:</p>
-<script src="https://gist.github.com/cmenguy/ee0acdbf22e73e8db26dfc2e68e93b94.js"></script>
+<div><a href="https://gist.github.com/cmenguy/66a4c2baa4f189ca6537e92f86e2ad12">https://gist.github.com/cmenguy/66a4c2baa4f189ca6537e92f86e2ad12</a></div>
 <p>The generation loop: start with BOS, feed it through the model, get logits, apply temperature scaling, sample the next token, repeat until BOS appears again (end of name) or we hit the max length.</p>
 <p>Temperature controls the "sharpness" of the distribution. Before softmax, each logit is divided by the temperature:</p>
 <p><img alt="equation" src="https://latex.codecogs.com/png.latex?\dpi{150}\bg_white%20P%28x_i%29%20%3D%20%5Cfrac%7Be%5E%7Bz_i%20%2F%20T%7D%7D%7B%5Csum_j%20e%5E%7Bz_j%20%2F%20T%7D%7D" /></p>
@@ -149,7 +149,7 @@
 <p><code>random.choices</code> does weighted sampling from the distribution. This is the stochastic part that gives you different outputs each time, unlike greedy decoding.</p>
 <h2>7. Mapping to "Attention Is All You Need"</h2>
 <p>Here's how Karpathy's ~200 lines map to the original transformer paper:</p>
-<script src="https://gist.github.com/cmenguy/3fac01154a1a4fc09a2e3a63854b279a.js"></script>
+<div><a href="https://gist.github.com/cmenguy/7419372023b6152aa7113eaaff1f3d13">https://gist.github.com/cmenguy/7419372023b6152aa7113eaaff1f3d13</a></div>
 <p>Key differences from the original paper:
 - <strong>Decoder-only</strong>: the paper described an encoder-decoder model for translation. GPT dropped the encoder and cross-attention, keeping only the decoder with causal self-attention.
 - <strong>RMSNorm instead of LayerNorm</strong>: simpler and cheaper. Modern LLMs almost universally use RMSNorm.

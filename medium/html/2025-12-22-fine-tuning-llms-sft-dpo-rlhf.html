@@ -8,7 +8,7 @@
 <h2>1. Why Not Just Context Engineering?</h2>
 <p>The first thing I tried (and probably what you'd try too) was cramming everything into the prompt. System message with brand guidelines, a few examples of approved copy via few-shot, maybe RAG over a library of past campaigns. No training, no GPUs, ship it by Friday.</p>
 <p>And honestly? For a single brand with a straightforward voice, this works fine. Here's the kind of prompt I was playing with:</p>
-<script src="https://gist.github.com/cmenguy/1ab9b1186727d3429c6eaeb74831c9d7.js"></script>
+<div><a href="https://gist.github.com/cmenguy/dd3cff44ef39441eae97c33b322422e3">https://gist.github.com/cmenguy/dd3cff44ef39441eae97c33b322422e3</a></div>
 <p>Llama 3.1 8B does a decent job with this. You get something like "Cold feet aren't part of the plan." Not bad, sounds roughly on-brand. So why bother fine-tuning?</p>
 <p>Three reasons kept pushing me past the prompt-engineering ceiling:</p>
 <p><strong>Context window budget.</strong> When you're serving 50 different brands, each with its own voice guidelines and example library, the prompt gets heavy fast. A 2,000-token brand context block times 50 brands means every request is burning tokens on instructions instead of thinking. Fine-tuning bakes the knowledge into the weights. The prompt stays lean, inference is cheaper, and latency drops.</p>
@@ -19,7 +19,7 @@
 <p>Here's the scenario I keep coming back to. You're building an AI-powered marketing platform. Customers upload their brand guidelines, past campaigns, and tone-of-voice docs. They want the LLM to generate email subject lines, ad copy, social media posts, and product descriptions that are indistinguishable from what their in-house team would write.</p>
 <p>This is a preference-heavy domain. "Good" marketing copy isn't just grammatically correct; it's persuasive, on-brand, and sometimes deliberately breaks rules for effect. That matters a lot for which fine-tuning approach you choose.</p>
 <p>Here's the quick mental model before we go deep:</p>
-<script src="https://gist.github.com/cmenguy/3645156ccafc24b030f90be038246585.js"></script>
+<div><a href="https://gist.github.com/cmenguy/bdea3cd36a24a318501025363c5a82de">https://gist.github.com/cmenguy/bdea3cd36a24a318501025363c5a82de</a></div>
 <h2>3. Supervised Fine-Tuning (SFT): Teaching by Example</h2>
 <p>SFT is the workhorse. You show the model examples of what good output looks like, and it learns to imitate them. If you've ever fine-tuned a model on a dataset of prompt-completion pairs, you've done SFT.</p>
 <h4>3.1 The Math</h4>
@@ -31,11 +31,11 @@
 <p>The catch: SFT can only learn from positive examples. It knows what "good" looks like, but it has no concept of "this is better than that." If your training data has any noise (mediocre examples mixed in with great ones), the model learns to reproduce the average, not the best.</p>
 <h4>3.3 The Code</h4>
 <p>Let's fine-tune a model on marketing copy using TRL's <code>SFTTrainer</code>. First, the data prep: structuring brand-specific examples as conversations:</p>
-<script src="https://gist.github.com/cmenguy/4c39b29d3cd499273e36f3bfea2dfcb7.js"></script>
+<div><a href="https://gist.github.com/cmenguy/f044adb91302e8596adff8ef809029e4">https://gist.github.com/cmenguy/f044adb91302e8596adff8ef809029e4</a></div>
 <p>Now the training setup. LoRA keeps this feasible on a single GPU:</p>
-<script src="https://gist.github.com/cmenguy/8678d43c9aeba8c1ce004e09163d3f49.js"></script>
+<div><a href="https://gist.github.com/cmenguy/33bc44404759c62a8a68d955776146a9">https://gist.github.com/cmenguy/33bc44404759c62a8a68d955776146a9</a></div>
 <p>And the trainer. Note the <code>max_length</code> tuned for short-form marketing copy:</p>
-<script src="https://gist.github.com/cmenguy/d990d81f8adceabe5ffdaccbd13e7cfe.js"></script>
+<div><a href="https://gist.github.com/cmenguy/abc05856190d642c24f36476f90eab6b">https://gist.github.com/cmenguy/abc05856190d642c24f36476f90eab6b</a></div>
 <p>That's it. With 500-1000 curated examples per brand, you'll get a model that captures tone and style surprisingly well. SFT is the 80/20 of fine-tuning: it gets you most of the way there with the least effort.</p>
 <h2>4. RLHF: The Full Pipeline</h2>
 <p>Reinforcement Learning from Human Feedback is the approach that made ChatGPT feel different from GPT-3. The idea: train a separate reward model on human preferences, then use it to guide the LLM's behavior via reinforcement learning.</p>
@@ -54,14 +54,14 @@
 <p>For a marketing use case, RLHF makes sense at scale: when you have thousands of A/B tested campaigns and can build a reward model that genuinely captures what makes copy convert. For most teams, this is overkill.</p>
 <h4>4.3 The Code</h4>
 <p>Let's build the full pipeline. First, the reward model, trained on pairs where one version of copy outperformed another:</p>
-<script src="https://gist.github.com/cmenguy/fca29c7e60a2a22d1a32e70851b80c29.js"></script>
+<div><a href="https://gist.github.com/cmenguy/7065cd395e8fc5c0d005b0c619b4f081">https://gist.github.com/cmenguy/7065cd395e8fc5c0d005b0c619b4f081</a></div>
 <p>Training the reward model using TRL's <code>RewardTrainer</code>:</p>
-<script src="https://gist.github.com/cmenguy/16ca81728317ffe309f01790a14ec21a.js"></script>
-<script src="https://gist.github.com/cmenguy/171def987dfc16d5466ad037047853ff.js"></script>
+<div><a href="https://gist.github.com/cmenguy/1c94c2e1467e0fa312f8d77a9303364d">https://gist.github.com/cmenguy/1c94c2e1467e0fa312f8d77a9303364d</a></div>
+<div><a href="https://gist.github.com/cmenguy/cf8fc636069a1e649ff1a6e49f0ba291">https://gist.github.com/cmenguy/cf8fc636069a1e649ff1a6e49f0ba291</a></div>
 <p>Now the RL stage: this is where the model learns to generate copy that scores high on the reward model. TRL's <code>RLOOTrainer</code> (REINFORCE Leave-One-Out) handles generation, scoring, and policy updates in a unified loop. First, prepare the prompt dataset:</p>
-<script src="https://gist.github.com/cmenguy/01723f921cdcf80d8b81cf37e747c5bd.js"></script>
+<div><a href="https://gist.github.com/cmenguy/93378edd9186219bd8344c63f5f176ba">https://gist.github.com/cmenguy/93378edd9186219bd8344c63f5f176ba</a></div>
 <p>Configure and run the RLOO trainer: it generates multiple completions per prompt and uses the leave-one-out baseline to reduce variance:</p>
-<script src="https://gist.github.com/cmenguy/c302acc23d13ff303fcfe0625d7f6b1f.js"></script>
+<div><a href="https://gist.github.com/cmenguy/e8725d3d1b93af8c85da659e6d7d457d">https://gist.github.com/cmenguy/e8725d3d1b93af8c85da659e6d7d457d</a></div>
 <p>That's still a lot of moving parts: two models, generation during training, and hyperparameters that interact in non-obvious ways. RLOO is more stable than the old PPO approach, but the fundamental complexity of reward-model-guided RL remains. This is why DPO exists.</p>
 <h2>5. DPO: The Pragmatist's Choice</h2>
 <p>Direct Preference Optimization is the "what if we just... skipped the reward model?" approach. Published in 2023, DPO showed that you can optimize directly on preference pairs without ever training a separate reward model or running RL. It's mathematically equivalent to RLHF under certain assumptions, but dramatically simpler to implement.</p>
@@ -76,14 +76,14 @@
 <p>For marketing, this is particularly appealing. You likely have A/B test results, editorial feedback, and brand compliance reviews, all natural sources of "this version is better than that version" data. DPO consumes this directly.</p>
 <h4>5.3 The Code</h4>
 <p>DPO needs an SFT model as the starting point (the reference policy) and a dataset of preference pairs. The data is the same format we used for the reward model:</p>
-<script src="https://gist.github.com/cmenguy/97480140bcf1e859ec087c65cd69fc4b.js"></script>
+<div><a href="https://gist.github.com/cmenguy/837e66f0924adcca0a9e30285f327e25">https://gist.github.com/cmenguy/837e66f0924adcca0a9e30285f327e25</a></div>
 <p>The training setup is refreshingly simple: one model, one trainer, one loss function:</p>
-<script src="https://gist.github.com/cmenguy/4a156f4cb9e040a61cc7357441693386.js"></script>
-<script src="https://gist.github.com/cmenguy/fb0f68657ed0790557fbc4bc5ca6a12b.js"></script>
+<div><a href="https://gist.github.com/cmenguy/6a06b8be8281cdff2a4e722fe2fe4d7f">https://gist.github.com/cmenguy/6a06b8be8281cdff2a4e722fe2fe4d7f</a></div>
+<div><a href="https://gist.github.com/cmenguy/dcfb8c7f918eb6f79fd466395fa29a31">https://gist.github.com/cmenguy/dcfb8c7f918eb6f79fd466395fa29a31</a></div>
 <p>Compare this to the RLHF pipeline above. Same preference data, same end goal, a fraction of the complexity.</p>
 <h2>6. The Comparison: What Actually Works for Marketing</h2>
 <p>Let's put these side by side for the marketing fine-tuning scenario:</p>
-<script src="https://gist.github.com/cmenguy/1f8555096f6daaf97ead0d0b02da7be0.js"></script>
+<div><a href="https://gist.github.com/cmenguy/64e2fda7ce188d879007515252056199">https://gist.github.com/cmenguy/64e2fda7ce188d879007515252056199</a></div>
 <h4>6.1 My Recommendation for Marketing</h4>
 <p><strong>Start with SFT. Graduate to DPO. Reach for RLHF only if you have to.</strong></p>
 <p>Here's why, stage by stage:</p>
