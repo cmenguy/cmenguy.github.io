@@ -4,6 +4,7 @@ title: "The Agentic Protocol Zoo"
 date: 2026-01-28 10:00:00 -0800
 categories: [llm, ai-engineering, agents]
 tags: [agents, a2a, mcp, multi-agent, protocols, orchestration, google, anthropic]
+series: agents
 author: cmenguy
 colab_url: "https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-01-28-agentic-protocols.ipynb"
 colab_embed: false

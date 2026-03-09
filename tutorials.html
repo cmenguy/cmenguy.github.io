@@ -1,0 +1,54 @@
+---
+layout: default
+title: Tutorials
+permalink: /tutorials/
+---
+
+<div class="terminal-window">
+  <div class="terminal-titlebar">
+    <span class="dot red"></span>
+    <span class="dot yellow"></span>
+    <span class="dot green"></span>
+    <span class="title">~/tutorials</span>
+  </div>
+  <div class="terminal-body">
+    <p class="prompt">tree tutorials/</p>
+
+    <ul class="tree-view">
+      {% for series_entry in site.series %}
+      {% assign series_key = series_entry[0] %}
+      {% assign series_meta = series_entry[1] %}
+      {% assign series_posts = site.posts | where: "series", series_key | sort: "date" %}
+      {% assign series_size = series_posts | size %}
+      {% if series_size > 0 %}
+      <li class="tree-branch" id="series-{{ series_key }}" data-series="{{ series_key }}">
+        <span class="tree-label">{{ series_meta.title }}</span> ({{ series_size }} parts)
+        <ul class="tree-leaves">
+          {% for post in series_posts %}
+          <li>
+            <span class="tutorial-part">[Part {{ forloop.index }}]</span>
+            <a href="{{ post.url | relative_url }}">{{ post.title }}</a>
+          </li>
+          {% endfor %}
+        </ul>
+      </li>
+      {% endif %}
+      {% endfor %}
+    </ul>
+
+    <p style="margin-top: 1em;"><span class="prompt"></span><span class="cursor"></span></p>
+  </div>
+</div>
+
+<script>
+(function() {
+  var hash = window.location.hash.replace('#', '');
+  if (!hash) return;
+
+  var target = document.getElementById('series-' + hash);
+  if (!target) return;
+
+  target.classList.add('tree-branch--highlight');
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+})();
+</script>

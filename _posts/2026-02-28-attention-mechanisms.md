@@ -4,6 +4,7 @@ title: "Is Attention Really All You Need?"
 date: 2026-02-28 10:00:00 -0800
 categories: [deep-learning, llm]
 tags: [attention, transformer, flash-attention, multi-head-attention, gqa, mqa, sparse-attention, from-scratch]
+series: transformers
 author: cmenguy
 colab_url: "https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-02-28-attention-mechanisms.ipynb"
 colab_embed: false

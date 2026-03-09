@@ -52,6 +52,20 @@ defaults:
 
 buttondown_username: cmenguy
 
+series:
+  fine-tuning:
+    topic: "fine-tuning LLMs"
+    title: "Fine-Tuning LLMs"
+  agents:
+    topic: "building AI agents"
+    title: "Building AI Agents"
+  transformers:
+    topic: "transformers from scratch"
+    title: "Transformers From Scratch"
+  code-gen:
+    topic: "AI code generation"
+    title: "AI Code Generation"
+
 exclude:
   - Gemfile
   - Gemfile.lock

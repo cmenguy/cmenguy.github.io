@@ -4,6 +4,7 @@ title: "GPT in 200 Lines of Pure Python: Every Line Explained"
 date: 2026-02-16 10:00:00 -0800
 categories: [deep-learning, llm]
 tags: [gpt, transformer, attention, backpropagation, autograd, karpathy, from-scratch]
+series: transformers
 author: cmenguy
 colab_url: "https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-02-16-gpt-in-pure-python.ipynb"
 colab_embed: false

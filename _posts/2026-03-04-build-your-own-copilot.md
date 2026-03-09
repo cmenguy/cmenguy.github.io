@@ -4,6 +4,7 @@ title: "Build Your Own Copilot in Pure Python"
 date: 2026-03-04 10:00:00 -0800
 categories: [llm, ai-engineering, code-gen]
 tags: [copilot, code-completion, fill-in-the-middle, fine-tuning, lora, code-llm, nl2code, from-scratch]
+series: code-gen
 author: cmenguy
 image: /assets/images/posts/2026-03-04-build-your-own-copilot.png
 colab_url: "https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-03-04-build-your-own-copilot.ipynb"

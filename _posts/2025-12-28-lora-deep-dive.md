@@ -4,6 +4,7 @@ title: "LoRA From the Ground Up: The Math, the Matrices, and the Merge"
 date: 2025-12-28 10:00:00 -0800
 categories: [llm, fine-tuning]
 tags: [lora, peft, fine-tuning, low-rank, linear-algebra, merging]
+series: fine-tuning
 author: cmenguy
 colab_url: "https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/2025-12-28-lora-deep-dive.ipynb"
 colab_embed: false

@@ -22,7 +22,7 @@ title: Categories
           {% for post in category[1] %}
           <li>
             <span style="color: var(--gray); font-size: 0.8em;">{{ post.date | date: "%Y-%m-%d" }}</span>
-            <a href="{{ post.url | relative_url }}">{{ post.title }}</a>
+            {% if post.series %}<a href="{{ '/tutorials' | relative_url }}#{{ post.series }}" class="series-badge">[{{ post.series }}]</a> {% endif %}<a href="{{ post.url | relative_url }}">{{ post.title }}</a>
           </li>
           {% endfor %}
         </ul>

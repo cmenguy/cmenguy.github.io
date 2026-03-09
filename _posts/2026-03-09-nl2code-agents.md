@@ -2,8 +2,9 @@
 layout: post
 title: "NL2Code with Agents: From English to Production Python"
 date: 2026-03-09 10:00:00 -0800
-categories: [llm, ai-engineering, code-gen]
+categories: [llm, ai-engineering, code-gen, agents]
 tags: [nl2code, agents, code-generation, marketing, tool-use, react, codeact, from-scratch]
+series: code-gen
 author: cmenguy
 colab_url: "https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-03-09-nl2code-agents.ipynb"
 colab_embed: false

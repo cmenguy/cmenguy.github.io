@@ -4,6 +4,7 @@ title: "SFT, DPO, RLHF: Picking the Right Fine-Tuning Strategy for Your LLM"
 date: 2025-12-22 10:00:00 -0800
 categories: [llm, fine-tuning]
 tags: [sft, dpo, rlhf, trl, marketing, preference-learning]
+series: fine-tuning
 author: cmenguy
 colab_url: "https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/2025-12-22-fine-tuning-llms-sft-dpo-rlhf.ipynb"
 colab_embed: false

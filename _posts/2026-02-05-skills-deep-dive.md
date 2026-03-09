@@ -4,6 +4,7 @@ title: "The Skill is the Unit of Reuse"
 date: 2026-02-05 10:00:00 -0800
 categories: [llm, ai-engineering, agents]
 tags: [skills, agents, claude-code, mistral-vibe, codex, agent-skills, composability, evaluation]
+series: agents
 author: cmenguy
 colab_url: "https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-02-05-skills-deep-dive.ipynb"
 colab_embed: false

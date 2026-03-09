@@ -21,7 +21,7 @@ title: Home
       {% for post in site.posts %}
       <li class="post-entry" data-index="{{ forloop.index0 }}">
         <span class="post-entry-date">{{ post.date | date: "%Y-%m-%d" }}</span>
-        <a href="{{ post.url | relative_url }}" class="post-entry-title">{{ post.title }}</a>
+        {% if post.series %}<a href="{{ '/tutorials' | relative_url }}#{{ post.series }}" class="series-badge">[{{ post.series }}]</a> {% endif %}<a href="{{ post.url | relative_url }}" class="post-entry-title">{{ post.title }}</a>
         {% if post.categories.size > 0 %}
         <span class="post-entry-categories">
           {% for cat in post.categories %}

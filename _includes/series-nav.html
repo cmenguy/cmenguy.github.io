@@ -1,0 +1,23 @@
+{% if page.series %}
+{% assign series_posts = site.posts | where: "series", page.series | sort: "date" %}
+{% assign series_size = series_posts | size %}
+{% if series_size > 1 %}
+{% assign series_meta = site.series[page.series] %}
+{% assign series_topic = series_meta.topic | default: page.series %}
+<nav class="series-nav" aria-label="Series navigation">
+  <div class="series-nav-header">This post is part of a tutorial series on <strong>{{ series_topic }}</strong>.</div>
+  <ol class="series-nav-list">
+    {% for sp in series_posts %}
+    <li class="series-nav-item{% if sp.url == page.url %} series-nav-item--current{% endif %}">
+      <span class="series-nav-part">[Part {{ forloop.index }}]</span>
+      {% if sp.url == page.url %}
+      <span class="series-nav-link series-nav-link--current">{{ sp.title }}</span>
+      {% else %}
+      <a href="{{ sp.url | relative_url }}" class="series-nav-link">{{ sp.title }}</a>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+</nav>
+{% endif %}
+{% endif %}
