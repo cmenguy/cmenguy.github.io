@@ -6,6 +6,7 @@ categories: [llm, ai-engineering, code-gen, agents]
 tags: [nl2code, agents, code-generation, marketing, tool-use, react, codeact, from-scratch]
 series: code-gen
 author: cmenguy
+image: /assets/images/posts/2026-03-09-nl2code-agents.png
 colab_url: "https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-03-09-nl2code-agents.ipynb"
 colab_embed: false
 github_notebook: "https://github.com/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-03-09-nl2code-agents.ipynb"
