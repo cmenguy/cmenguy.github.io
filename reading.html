@@ -85,6 +85,18 @@ permalink: /reading/
           <span class="reading-author">Wang et al., 2024</span>
           <p class="reading-note">CodeAct: using code execution as the agent's action space instead of JSON tool calls. This is the pattern I ended up using in production for NL2Code.</p>
         </li>
+        <li class="reading-entry">
+          <span class="reading-type type-paper">paper</span>
+          <a href="https://arxiv.org/abs/2203.09095" target="_blank" rel="noopener">Automating Code Review Activities by Large-Scale Pre-training</a>
+          <span class="reading-author">Li et al., 2022</span>
+          <p class="reading-note">CodeReviewer from Microsoft: pre-training tasks designed specifically for code review workflows. The insight that generic code models aren't enough for review is what pushed me toward a layered pipeline instead of one-shot LLM review.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-paper">paper</span>
+          <a href="https://arxiv.org/abs/2304.05128" target="_blank" rel="noopener">Teaching Large Language Models to Self-Debug</a>
+          <span class="reading-author">Chen et al., 2023</span>
+          <p class="reading-note">The rubber duck debugging trick: asking an LLM to explain code before reviewing it roughly doubled my logic bug detection rate compared to direct review prompts.</p>
+        </li>
       </ul>
     </div>
 
@@ -169,6 +181,12 @@ permalink: /reading/
           <a href="https://github.com/ml-explore/mlx" target="_blank" rel="noopener">ml-explore/mlx</a>
           <span class="reading-author">Apple</span>
           <p class="reading-note">Apple's ML framework for unified memory on Apple Silicon. I develop on a Mac, so this is how I run local inference without fighting CUDA.</p>
+        </li>
+        <li class="reading-entry">
+          <span class="reading-type type-repo">repo</span>
+          <a href="https://github.com/tree-sitter/tree-sitter" target="_blank" rel="noopener">tree-sitter/tree-sitter</a>
+          <span class="reading-author">tree-sitter</span>
+          <p class="reading-note">Language-agnostic incremental parsing. I used it to build the code indexing pipeline in my Jira-to-PR post: parse any language into a concrete syntax tree, extract functions as chunks for embedding.</p>
         </li>
       </ul>
     </div>

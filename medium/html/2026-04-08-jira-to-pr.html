@@ -1,0 +1,144 @@
+<h1>From Jira to Pull Request: Building an AI Bug-Fix Agent</h1>
+<hr />
+<p><strong>End-to-end AI bug-fix pipeline: tree-sitter code indexing, hybrid retrieval (vector + BM25), and a ReAct agent loop that processes a ticket and generates a fix.</strong></p>
+<p><a href="https://colab.research.google.com/github/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-04-08-jira-to-pr.ipynb">Run in Google Colab</a> | <a href="https://github.com/cmenguy/cmenguy.github.io/blob/main/notebooks/2026-04-08-jira-to-pr.ipynb">View on GitHub</a></p>
+<hr />
+<p>In <a href="https://ai-terminal.net/llm/ai-engineering/code-gen/2026/03/04/build-your-own-copilot/">Part 1</a> I built a Copilot clone for inline code completion. In <a href="https://ai-terminal.net/llm/ai-engineering/code-gen/agents/2026/03/09/nl2code-agents/">Part 2</a> I built an NL2Code agent that generates full scripts from English descriptions. Both of those posts are about writing new code. This one goes the other direction: reading a bug ticket, finding the broken code, fixing it, and shipping a pull request. No human in the loop.</p>
+<p>The trigger was a discussion at work about our move to a monorepo. The main motivation for the migration is that AI tools like Claude Code work best when they have all the context in one place: one repo, one dependency graph, one search index. But the flip side is that a monorepo with dozens of contributors generates a lot of GitHub issues and PRs. We started looking at how large open-source projects like Kubernetes and OpenClaw handle that volume, and the conversation landed on automated PR generation for routine bug fixes. The question that stuck with me was: what would it take to go from a Jira ticket saying "NullPointerException in UserService.getProfile()" to a pull request that actually fixes the bug, with no human touching the keyboard in between? I spent the past few weeks building one to find out.</p>
+<p>This is <strong>Part 3 of a 3-part series</strong> on AI-assisted code generation. <a href="https://ai-terminal.net/llm/ai-engineering/code-gen/2026/03/04/build-your-own-copilot/">Part 1</a> covered inline completion (FIM, code models, LoRA fine-tuning). <a href="https://ai-terminal.net/llm/ai-engineering/code-gen/agents/2026/03/09/nl2code-agents/">Part 2</a> covered NL2Code with agents. This post covers the fix side: ingesting a bug ticket, building a searchable knowledge base from the repo, and running a single-agent loop that investigates, patches, tests, and opens a PR.</p>
+<h2>1. Why a Single Agent</h2>
+<p>The obvious architecture for "ticket → PR" is a pipeline of specialized agents. A Triage agent reads the ticket and classifies it. A Planning agent decides what to investigate. A CodeGen agent writes the fix. A Review agent checks the fix. Clean separation of concerns.</p>
+<p>The problem is information loss. Every hand-off between agents requires serializing one agent's findings into a summary that the next agent consumes. Summaries drop details. The CodeGen agent can't go back and re-read the stack trace because it only received the Planning agent's distilled version of it. If the fix attempt reveals that the initial diagnosis was wrong, there's no way to pivot without restarting the entire pipeline.</p>
+<div><a href="https://gist.github.com/cmenguy/95e0222efadf7c847158974842846138">https://gist.github.com/cmenguy/95e0222efadf7c847158974842846138</a></div>
+<p>A single agent running inside a harness maintains one continuous context window across the entire lifecycle of a ticket. It can re-read the stack trace while writing code. It can change its diagnosis mid-implementation when the code contradicts its initial theory. It can skip investigation steps when the stack trace is already definitive. This mirrors how an experienced engineer actually works: you hold the full problem in your head and fluidly move between investigation, planning, and implementation. You don't hand off a memo to a different person at each step.</p>
+<p>The trade-off is context window pressure. A 200k-token window fills faster than you'd think when you're reading full files and collecting search results. I'll cover how the harness manages that later.</p>
+<h2>2. Architecture: The 30-Second Version</h2>
+<p>Here's the full system:</p>
+<div><a href="https://gist.github.com/cmenguy/908689cfa3e8a1fc41a5554fe5df8d2f">https://gist.github.com/cmenguy/908689cfa3e8a1fc41a5554fe5df8d2f</a></div>
+<p>Tickets come in from any source. They get normalized into a standard schema, queued by priority, and dispatched to a worker pod running the agentic harness. The harness gives the agent a set of skills (search, read, edit, test, etc.) and manages context, checkpoints, and permissions. The Knowledge Layer is what makes the agent's search skills useful. Without it, <code>search_code("getProfile")</code> returns nothing.</p>
+<p>Let me build each piece.</p>
+<h2>3. Building the Knowledge Base</h2>
+<p>The agent is only as good as what it can search. If a developer files a ticket about a NullPointerException in <code>UserService.getProfile()</code>, the agent needs to find the actual code for that method, understand what it does, find who calls it, and look up whether anyone has fixed a similar bug before. All of that depends on the Knowledge Layer being populated and fresh.</p>
+<h4>3.1 Parsing Code with tree-sitter</h4>
+<p>The first step is turning source files into structured records. Raw text files are useless for search: you'd be embedding entire files and hoping cosine similarity lands on the right 10-line function in a 500-line file. Instead, we parse each file into its AST and extract every named declaration (function, method, class) as a separate record.</p>
+<p><a href="https://github.com/tree-sitter/tree-sitter">tree-sitter</a> handles this across languages. It produces a concrete syntax tree that we walk to extract symbols with their metadata.</p>
+<div><a href="https://gist.github.com/cmenguy/69c98dd7fad5bd503e451ba03f1dee92">https://gist.github.com/cmenguy/69c98dd7fad5bd503e451ba03f1dee92</a></div>
+<p>Given a source file, we parse it and walk the tree to find function and class definitions:</p>
+<div><a href="https://gist.github.com/cmenguy/87d6390cfc11bc2e1c6c5c562f636cf0">https://gist.github.com/cmenguy/87d6390cfc11bc2e1c6c5c562f636cf0</a></div>
+<p>The <code>_extract_function</code> helper pulls out everything we need for a single symbol:</p>
+<div><a href="https://gist.github.com/cmenguy/e2f3bdb352243d2f6746361e07e17f2f">https://gist.github.com/cmenguy/e2f3bdb352243d2f6746361e07e17f2f</a></div>
+<p>For a Java file like <code>UserService.java</code>, the parser would emit a record for each method:</p>
+<div><a href="https://gist.github.com/cmenguy/6d8af46e06f69c78dc5f2a9416848253">https://gist.github.com/cmenguy/6d8af46e06f69c78dc5f2a9416848253</a></div>
+<h4>3.2 Chunking at AST Boundaries</h4>
+<p>Each parsed symbol becomes one chunk. This is the right granularity for code search: when a ticket mentions <code>getProfile</code>, you want to retrieve that specific method, not the entire 800-line <code>UserService.java</code> file.</p>
+<p>Two exceptions handle edge cases:</p>
+<p><strong>Large functions.</strong> If a function body exceeds 400 tokens, split it into overlapping sub-chunks of 400 tokens each with 80-token overlap. Attach the parent function metadata (name, class, file) to every sub-chunk so retrieval results are always locatable.</p>
+<p><strong>Class-level summaries.</strong> In addition to per-method chunks, emit one chunk per class containing only the declaration, field declarations, and constructor signatures (no method bodies). This lets queries like "what fields does UserService have?" hit a compact chunk instead of wading through all method bodies.</p>
+<div><a href="https://gist.github.com/cmenguy/9de5081946553d81b622ffcb08d6fc22">https://gist.github.com/cmenguy/9de5081946553d81b622ffcb08d6fc22</a></div>
+<h4>3.3 The Enrichment Trick</h4>
+<p>This is the most important design decision in the entire indexing pipeline. What text string you pass to the embedding model determines retrieval quality. Embedding raw source code performs poorly because ticket queries are natural language ("NullPointerException when fetching user profile from cache") and code is, well, code. The semantic gap between a bug report and a function body is huge.</p>
+<p>The fix is to assemble an <strong>enriched text string</strong> per chunk that combines natural language context with the code:</p>
+<div><a href="https://gist.github.com/cmenguy/bd0da48501683676ba95c8652b4c9d9b">https://gist.github.com/cmenguy/bd0da48501683676ba95c8652b4c9d9b</a></div>
+<p>Why this works: the ticket query "NullPointerException when fetching user profile from cache" is natural language. The enriched string contains the docstring ("Returns null on cache miss") which bridges the semantic gap. The class and method name provide symbol-level anchoring. The full source is there so the embedding also captures code-level patterns.</p>
+<p>Here's the template:</p>
+<div><a href="https://gist.github.com/cmenguy/fcdcf998f351e2b85a6ffe1644ad7a1a">https://gist.github.com/cmenguy/fcdcf998f351e2b85a6ffe1644ad7a1a</a></div>
+<p>Without enrichment, the embedding model sees <code>public User getProfile(String userId) { User user = cache.get(userId); return user; }</code> and has no idea that this function relates to "user profile cache miss." With enrichment, the docstring, class name, and method signature all contribute semantic signal that the embedding model can use to connect the dots.</p>
+<h4>3.4 Embedding and Storage</h4>
+<p>For the embedding model, I'm using OpenAI's <code>text-embedding-3-large</code>. The reasoning: since the enriched input strings are a hybrid of natural language and code (not raw code), a general-purpose embedding model handles them well. A code-specialized model like voyage-code-2 would give marginal gains on raw code syntax, but the natural language portions (docstrings, signatures, file paths) are where the ticket-to-code bridge happens. Using the same vendor as the LLM also means one API key, one billing relationship, one rate-limit budget.</p>
+<div><a href="https://gist.github.com/cmenguy/f7b33fbe96b0bb0dc1dd09dac0492001">https://gist.github.com/cmenguy/f7b33fbe96b0bb0dc1dd09dac0492001</a></div>
+<p>Each chunk gets stored in three places, each optimized for a different query pattern:</p>
+<p><strong>pgvector</strong> for semantic search. When the agent searches "cache miss null pointer", the query gets embedded and we find the nearest chunks by cosine similarity.</p>
+<div><a href="https://gist.github.com/cmenguy/43c4060a3b2a512ec537381b316d4fb7">https://gist.github.com/cmenguy/43c4060a3b2a512ec537381b316d4fb7</a></div>
+<p><strong>Elasticsearch</strong> for BM25 keyword search. When the agent searches <code>getProfile</code>, we want exact identifier matching, not fuzzy semantic similarity. The <code>text</code> field is tokenized source code stripped of punctuation so BM25 matches on identifiers like <code>getProfile</code>, <code>userId</code>, <code>cache</code>.</p>
+<p><strong>Postgres</strong> for the dependency graph. Who calls <code>getProfile</code>? What does <code>UserService</code> import? This is where the graph queries live.</p>
+<h4>3.5 Building the Dependency Graph</h4>
+<p>Embedding search answers "what code is semantically related to this ticket?" but it can't answer "who calls <code>getProfile</code>?" or "what does <code>UserService</code> depend on?". Those are graph traversal questions, and they come up constantly during bug investigation. If the agent changes <code>getProfile</code>'s return type from <code>User</code> to <code>Optional&lt;User&gt;</code>, it needs to find every caller and update them.</p>
+<p>The dependency graph is extracted during the same tree-sitter parse pass that produces symbol records. For each function body, we walk the AST looking for call expressions and attribute accesses, then resolve them against the symbols we've already extracted from the same repo.</p>
+<div><a href="https://gist.github.com/cmenguy/f9b57240b32626adc3a04b6d08190ccc">https://gist.github.com/cmenguy/f9b57240b32626adc3a04b6d08190ccc</a></div>
+<p>For <code>UserController.get_user()</code>, parsing the body finds <code>self.user_service.get_profile(user_id)</code>, which we resolve to the symbol <code>UserService.get_profile</code>. For <code>UserService.get_profile()</code>, we find <code>self.cache.get(user_id)</code>, resolved to <code>UserCache.get</code>.</p>
+<p>The resolution step matches raw call text against the known symbol table for the repo. <code>self.user_service.get_profile</code> gets resolved by checking the class's <code>__init__</code> to find that <code>self.user_service</code> is a <code>UserService</code> instance, then looking up <code>UserService.get_profile</code> in the symbol index. For cases where static analysis can't resolve the type (dynamic dispatch, duck typing), we fall back to a name-based heuristic: match <code>get_profile</code> against all symbols named <code>get_profile</code> in the repo and rank by file proximity.</p>
+<p>Each resolved call becomes a row in Postgres:</p>
+<div><a href="https://gist.github.com/cmenguy/8ba6a9eaea49895fd67ea40c546abb5b">https://gist.github.com/cmenguy/8ba6a9eaea49895fd67ea40c546abb5b</a></div>
+<div><a href="https://gist.github.com/cmenguy/14b437271e0e6214e67549c2a1606d14">https://gist.github.com/cmenguy/14b437271e0e6214e67549c2a1606d14</a></div>
+<p>The agent queries this graph through a <code>get_callers</code> skill:</p>
+<div><a href="https://gist.github.com/cmenguy/02698c2ccdc180a092a0c8ca4d06c300">https://gist.github.com/cmenguy/02698c2ccdc180a092a0c8ca4d06c300</a></div>
+<p>When the agent runs <code>get_callers("UserService.get_profile", "org/svc")</code>, it gets back:</p>
+<div><a href="https://gist.github.com/cmenguy/9e8603bb9a16e7c1e6f57725fc50b1a0">https://gist.github.com/cmenguy/9e8603bb9a16e7c1e6f57725fc50b1a0</a></div>
+<p>That's two callers to check when changing the return type. Without this graph, the agent would have to do a text search for "get_profile" across the entire repo and parse the results to figure out which matches are actual call sites vs. comments or string literals. The graph makes it a single indexed query.</p>
+<p>The reverse direction is useful too. <code>get_dependencies("UserService.get_profile", "org/svc")</code> tells the agent what <code>get_profile</code> itself depends on (in this case, <code>UserCache.get</code>), which helps when tracing the root cause upstream.</p>
+<h4>3.6 Hybrid Retrieval</h4>
+<p>Neither vector search nor keyword search is good enough on its own. Vector search finds semantically similar code but misses exact identifier matches. BM25 finds exact identifiers but doesn't understand that "cache miss" relates to <code>cache.get()</code> returning null. The solution is to run both and fuse the results.</p>
+<div><a href="https://gist.github.com/cmenguy/8e4a154a7c8851c4f4d418d0e9eb12d7">https://gist.github.com/cmenguy/8e4a154a7c8851c4f4d418d0e9eb12d7</a></div>
+<p>Reciprocal rank fusion (RRF) combines the two ranked lists without needing to normalize scores across different systems:</p>
+<div><a href="https://gist.github.com/cmenguy/9f69e55667c3a42ec0636525104ab995">https://gist.github.com/cmenguy/9f69e55667c3a42ec0636525104ab995</a></div>
+<p>When the agent queries "NullPointerException getProfile cache", vector search ranks the <code>getProfile</code> chunk high because the enriched embedding matches the semantic meaning. BM25 also ranks it high because "getProfile" and "cache" appear literally in the source. Chunks that score well on both end up at the top.</p>
+<h4>3.7 Keeping It Fresh</h4>
+<p>The knowledge base is useless if it falls behind the code. Every <code>git push</code> to a registered repo triggers a webhook that runs incremental re-indexing:</p>
+<ol>
+<li><code>git diff --name-only {before_sha}..{after_sha}</code> to get changed files</li>
+<li>For each changed file: re-parse, diff against stored symbols, update only what changed</li>
+<li>New symbols: add chunks, embed, upsert</li>
+<li>Modified symbols: re-embed, upsert (overwrite by chunk_id)</li>
+<li>Deleted symbols: delete from all three stores</li>
+<li>Update <code>last_indexed_sha</code> in the repo registry</li>
+</ol>
+<p>A typical push touching 3-5 files completes in under 10 seconds. The code index is always within one push of being current.</p>
+<h4>3.8 Learning from Past Fixes</h4>
+<p>Two additional indexes give the agent a memory of past work:</p>
+<p><strong>Ticket history.</strong> Past tickets are embedded as <code>"{title}\n\n{description}"</code> and stored. When a new ticket arrives, <code>search_similar_tickets()</code> retrieves past tickets with similar error messages. If someone already filed and fixed "NPE in UserService" three months ago, the agent gets a head start.</p>
+<p><strong>Merged PR store.</strong> Merged PRs linked to bug tickets are stored as <code>"{pr_title}\n\n{pr_description}\n\n{diff_summary}"</code>. The diff summary (not the raw diff) is what gets embedded, because raw diffs are noisy for similarity search. A one-paragraph human-readable summary of what changed and why produces much better recall.</p>
+<h2>4. The Agentic Harness</h2>
+<p>The harness is the runtime that wraps the LLM. It manages the loop, executes skill calls, enforces permissions, and maintains state. The reasoning about what to do lives entirely inside the LLM.</p>
+<h4>4.1 Skills and Permissions</h4>
+<p>The agent has access to a registry of skills, each with a name, input schema, and permission level:</p>
+<div><a href="https://gist.github.com/cmenguy/378b67ef0b39c6bd7a8bc7e8a3ab766f">https://gist.github.com/cmenguy/378b67ef0b39c6bd7a8bc7e8a3ab766f</a></div>
+<p>The full registry is injected into the system prompt so the agent always knows what it can do:</p>
+<div><a href="https://gist.github.com/cmenguy/a75993377bf7d814d128be39f9c74095">https://gist.github.com/cmenguy/a75993377bf7d814d128be39f9c74095</a></div>
+<h4>4.2 The System Prompt</h4>
+<p>The system prompt defines methodology and constraints. This is the most important design surface in a single-agent system.</p>
+<div><a href="https://gist.github.com/cmenguy/f0f0cd96f6f9015cdd0b07ddaa9a484e">https://gist.github.com/cmenguy/f0f0cd96f6f9015cdd0b07ddaa9a484e</a></div>
+<h4>4.3 Context Management</h4>
+<p>With a single agent holding everything in one context, window management is the critical engineering problem. A 200k-token window fills fast:</p>
+<ul>
+<li>A single Java file: ~2,000 tokens</li>
+<li>A test suite: ~5,000 tokens</li>
+<li>A search_code result: ~3,000 tokens</li>
+<li>30 steps of history: ~15,000 tokens</li>
+</ul>
+<p>The harness uses three strategies:</p>
+<p><strong>Scratchpad (pinned memory).</strong> The agent writes key findings via <code>remember()</code>. The scratchpad is always present in the context, never compressed. It acts as working memory.</p>
+<div><a href="https://gist.github.com/cmenguy/d2b665a5ab9ed7ee3dd69fca46615574">https://gist.github.com/cmenguy/d2b665a5ab9ed7ee3dd69fca46615574</a></div>
+<p><strong>Rolling compression.</strong> Tool results older than 10 steps get replaced with agent-written summaries. A 300-line file read becomes: <code>[UserService.java read at step 3. Key: getProfile() at line 143 returns raw User from cache.get(). No null check.]</code></p>
+<p><strong>Selective re-read.</strong> Instead of keeping large files in context, the agent re-reads only the specific lines it needs. <code>read_file("UserService.java", start=140, end=155)</code> is cheap and targeted.</p>
+<h2>5. End-to-End: Fixing a NullPointerException</h2>
+<p>Let me walk through the full flow. A developer files a Jira ticket: "NullPointerException in UserService.getProfile() after cache miss. Stack trace: UserService.java:143".</p>
+<h4>5.1 Ticket Ingestion</h4>
+<p>Jira fires a webhook. The Ingestion Service normalizes it into a <code>TicketEvent</code>:</p>
+<div><a href="https://gist.github.com/cmenguy/0a4c275aa9dea699f65939e27d9a6292">https://gist.github.com/cmenguy/0a4c275aa9dea699f65939e27d9a6292</a></div>
+<p>The dispatcher creates a session, clones the repo into a sandbox, creates branch <code>fix/PROJ-1234-auto</code>, and starts the agent loop.</p>
+<h4>5.2 The Agent Loop</h4>
+<p>Here's the actual execution trace. Each step is one iteration of the THINK → ACT → OBSERVE loop.</p>
+<p><strong>Investigation phase:</strong></p>
+<div><a href="https://gist.github.com/cmenguy/a7f0aad4db4abb6d573307897fc83ff5">https://gist.github.com/cmenguy/a7f0aad4db4abb6d573307897fc83ff5</a></div>
+<p>Seven steps. The agent read one file, ran one search, checked past tickets, and pinned its diagnosis. A multi-agent pipeline would have burned three full context windows to reach the same conclusion.</p>
+<p><strong>Implementation phase:</strong></p>
+<div><a href="https://gist.github.com/cmenguy/3d19e66ace2a1f30595bf51d9a7a0035">https://gist.github.com/cmenguy/3d19e66ace2a1f30595bf51d9a7a0035</a></div>
+<p>Notice how the agent caught the missing import by running the linter immediately after editing, then fixed it in the next step. This is the self-correction loop that makes the single-agent pattern work. No orchestrator needed.</p>
+<p><strong>Validation phase:</strong></p>
+<div><a href="https://gist.github.com/cmenguy/2bcdfc5deea5cd800076d5350e1f30a0">https://gist.github.com/cmenguy/2bcdfc5deea5cd800076d5350e1f30a0</a></div>
+<p>The test failure at step 21 is the kind of thing that trips up pipeline architectures. The CodeGen agent in a multi-agent system would need to signal back to a test-fixing agent, which would need access to the original diagnosis context to understand why the return type changed. Here, the agent just reads the failure message, understands it immediately (it made the change that caused the failure), and fixes it.</p>
+<p><strong>PR creation:</strong></p>
+<div><a href="https://gist.github.com/cmenguy/dd90d072a415b9dcf049e6c4245db26f">https://gist.github.com/cmenguy/dd90d072a415b9dcf049e6c4245db26f</a></div>
+<p><strong>Total: 29 skill calls, ~48k tokens, roughly $0.60, about 3 minutes</strong> from ticket creation to PR ready for review.</p>
+<h2>6. The Pieces You Can Build Today</h2>
+<p>The full system has a lot of infrastructure (Kafka, sandboxed containers, webhook services). But the core building blocks are surprisingly accessible. The companion notebook implements three of them end-to-end:</p>
+<ol>
+<li><strong>Code indexing with tree-sitter</strong>: parse a Python repo, extract functions, chunk at AST boundaries</li>
+<li><strong>Hybrid retrieval</strong>: embed chunks with OpenAI, build a BM25 index with rank_bm25, fuse results with RRF</li>
+<li><strong>A simplified agent loop</strong>: process a sample ticket against the indexed repo using a ReAct loop with tool calls</li>
+</ol>
+<p>The gap between the notebook version and the production system is mostly operational: container orchestration, webhook plumbing, and the persistence layer. The intelligence (how to index code, how to search it, how to reason about bugs) is all in the notebook.</p>
+<p>What I'd explore next: feeding the agent's merged PRs back into the knowledge base so it learns from its own fixes over time. If the agent fixed three NPE-from-cache-miss bugs last month, the fourth one should be faster.</p>
+<hr />
+<p><em>Originally published on <a href="https://ai-terminal.net/llm/ai-engineering/code-gen/2026/04/08/jira-to-pr/">AI Terminal</a>.</em></p>
+<p>Tags: rag, react, agents, bug-fix, tree-sitter</p>
